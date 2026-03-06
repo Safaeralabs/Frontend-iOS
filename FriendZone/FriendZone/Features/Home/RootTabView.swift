@@ -306,16 +306,7 @@ private struct PersistentDiscoveryMapView: View {
 
     private var markers: [DiscoveryMapMarker] {
         var items = [DiscoveryMapMarker.user(coordinate: userCoordinate)]
-        items.append(
-            contentsOf: hangouts.map { hangout in
-                DiscoveryMapMarker.hangout(
-                    id: hangout.id,
-                    coordinate: coordinate(for: hangout.id),
-                    vibe: hangout.vibe,
-                    isToday: Calendar.current.isDateInToday(hangout.startAt)
-                )
-            }
-        )
+        items.append(contentsOf: clusteredHangoutMarkers())
         return items
     }
 
@@ -336,7 +327,31 @@ private struct PersistentDiscoveryMapView: View {
                         hangoutMarker(vibe: vibe, isToday: isToday)
                     }
                     .buttonStyle(.plain)
+                case let .cluster(count, vibe, isToday, hangoutIDs):
+                    Button {
+                        FriendZoneHaptics.lightImpact()
+                        if region.span.latitudeDelta > 0.012 || region.span.longitudeDelta > 0.012 {
+                            withAnimation(.easeInOut(duration: 0.24)) {
+                                region.center = marker.coordinate
+                                region.span = MKCoordinateSpan(
+                                    latitudeDelta: max(0.008, region.span.latitudeDelta * 0.52),
+                                    longitudeDelta: max(0.008, region.span.longitudeDelta * 0.52)
+                                )
+                            }
+                        } else if let firstID = hangoutIDs.first {
+                            selectedHangoutID = (selectedHangoutID == firstID) ? nil : firstID
+                        }
+                    } label: {
+                        clusterMarker(count: count, vibe: vibe, isToday: isToday)
+                    }
+                    .buttonStyle(.plain)
                 }
+            }
+        }
+        .onChange(of: selectedHangoutID) { id in
+            guard let id else { return }
+            withAnimation(.easeInOut(duration: 0.22)) {
+                region.center = coordinate(for: id)
             }
         }
     }
@@ -396,12 +411,110 @@ private struct PersistentDiscoveryMapView: View {
         }
     }
 
+    private func clusterMarker(count: Int, vibe: HangoutVibe, isToday: Bool) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "#111827"), Color(hex: "#374151")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 46, height: 46)
+                .overlay {
+                    Text("\(count)")
+                        .font(FriendZoneTheme.Typography.system(15, weight: .heavy))
+                        .foregroundColor(.white)
+                }
+                .overlay {
+                    Circle().stroke(Color.white, lineWidth: 3)
+                }
+                .shadow(color: Color.black.opacity(0.28), radius: 9, x: 0, y: 3)
+
+            Text(vibeEmoji(vibe))
+                .font(.system(size: 11))
+                .padding(3)
+                .background(Color.white.opacity(0.92))
+                .clipShape(Circle())
+                .offset(x: 6, y: -4)
+
+            if isToday {
+                Circle()
+                    .fill(Color(hex: "#FF3B30"))
+                    .frame(width: 10, height: 10)
+                    .overlay {
+                        Circle().stroke(Color.white, lineWidth: 2)
+                    }
+                    .offset(x: 10, y: -8)
+            }
+        }
+    }
+
     private func coordinate(for id: Int) -> CLLocationCoordinate2D {
         let seed = Double((id % 9) + 1)
         return CLLocationCoordinate2D(
             latitude: 52.52 + (seed * 0.005) - 0.02,
             longitude: 13.40 + (seed * 0.006) - 0.02
         )
+    }
+
+    private func clusteredHangoutMarkers() -> [DiscoveryMapMarker] {
+        struct Point {
+            let hangout: HangoutItem
+            let coordinate: CLLocationCoordinate2D
+        }
+
+        var buckets: [String: [Point]] = [:]
+        let latCell = max(0.004, region.span.latitudeDelta / 8)
+        let lonCell = max(0.004, region.span.longitudeDelta / 8)
+
+        let points = hangouts.map { hangout in
+            Point(hangout: hangout, coordinate: coordinate(for: hangout.id))
+        }
+
+        for point in points {
+            let latIndex = Int(floor(point.coordinate.latitude / latCell))
+            let lonIndex = Int(floor(point.coordinate.longitude / lonCell))
+            let key = "\(latIndex)_\(lonIndex)"
+            buckets[key, default: []].append(point)
+        }
+
+        var markers: [DiscoveryMapMarker] = []
+
+        for bucket in buckets.values {
+            let sorted = bucket.sorted { $0.hangout.startAt < $1.hangout.startAt }
+            if sorted.count == 1, let single = sorted.first {
+                markers.append(
+                    DiscoveryMapMarker.hangout(
+                        id: single.hangout.id,
+                        coordinate: single.coordinate,
+                        vibe: single.hangout.vibe,
+                        isToday: Calendar.current.isDateInToday(single.hangout.startAt)
+                    )
+                )
+                continue
+            }
+
+            let avgLat = sorted.map(\.coordinate.latitude).reduce(0, +) / Double(sorted.count)
+            let avgLon = sorted.map(\.coordinate.longitude).reduce(0, +) / Double(sorted.count)
+            let lead = sorted[0].hangout
+            let ids = sorted.map { $0.hangout.id }
+            let anyToday = sorted.contains(where: { Calendar.current.isDateInToday($0.hangout.startAt) })
+
+            markers.append(
+                DiscoveryMapMarker.cluster(
+                    id: -abs(ids.reduce(0, +) + sorted.count * 97),
+                    coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                    count: sorted.count,
+                    vibe: lead.vibe,
+                    isToday: anyToday,
+                    hangoutIDs: ids
+                )
+            )
+        }
+
+        return markers
     }
 
     private func vibeColor(_ vibe: HangoutVibe) -> Color {
@@ -651,6 +764,7 @@ private struct DiscoveryMapMarker: Identifiable {
     enum Kind {
         case user
         case hangout(id: Int, vibe: HangoutVibe, isToday: Bool)
+        case cluster(count: Int, vibe: HangoutVibe, isToday: Bool, hangoutIDs: [Int])
     }
 
     let id: Int
@@ -663,5 +777,20 @@ private struct DiscoveryMapMarker: Identifiable {
 
     static func hangout(id: Int, coordinate: CLLocationCoordinate2D, vibe: HangoutVibe, isToday: Bool) -> DiscoveryMapMarker {
         DiscoveryMapMarker(id: id, coordinate: coordinate, kind: .hangout(id: id, vibe: vibe, isToday: isToday))
+    }
+
+    static func cluster(
+        id: Int,
+        coordinate: CLLocationCoordinate2D,
+        count: Int,
+        vibe: HangoutVibe,
+        isToday: Bool,
+        hangoutIDs: [Int]
+    ) -> DiscoveryMapMarker {
+        DiscoveryMapMarker(
+            id: id,
+            coordinate: coordinate,
+            kind: .cluster(count: count, vibe: vibe, isToday: isToday, hangoutIDs: hangoutIDs)
+        )
     }
 }
