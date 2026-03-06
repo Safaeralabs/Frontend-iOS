@@ -123,8 +123,10 @@ struct RootTabView: View {
                 .ignoresSafeArea()
 
                 mapBrandTint
+                    .opacity(showingMaps ? 0.16 : 1)
                     .ignoresSafeArea()
                 mapBrandPattern
+                    .opacity(showingMaps ? 0.10 : 1)
                     .ignoresSafeArea()
 
                 Rectangle()
@@ -156,44 +158,40 @@ struct RootTabView: View {
                     .toolbar(.hidden, for: .navigationBar)
                     .frame(width: pageWidth)
 
-                    NavigationStack {
-                        MapsOverlayView(
-                            hangouts: mapHangouts,
-                            selectedHangout: selectedMapHangout,
-                            openingDetailHangoutID: openingMapDetailHangoutID,
-                            isActive: showingMaps,
-                            onCloseSelection: {
-                                selectedMapHangoutID = nil
-                                openingMapDetailHangoutID = nil
-                            },
-                            onLocateMe: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    mapRegion.center = userCoordinate
-                                }
-                            },
-                            onOpenDetail: { hangout in
-                                FriendZoneHaptics.selection()
-                                openingMapDetailHangoutID = hangout.id
-                                let openingID = hangout.id
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                                    guard openingMapDetailHangoutID == openingID else { return }
-                                    mapDetailHangout = hangout
-                                    openingMapDetailHangoutID = nil
-                                }
-                            },
-                            onReportHangout: { _ in
-                                FriendZoneHaptics.lightImpact()
-                                isShowingMapReportAcknowledgement = true
-                            },
-                            onOpenHangouts: {
-                                withAnimation(FriendZoneTheme.Motion.easeOutExpo) {
-                                    selectedTab = .hangouts
-                                }
+                    MapsOverlayView(
+                        hangouts: mapHangouts,
+                        selectedHangout: selectedMapHangout,
+                        openingDetailHangoutID: openingMapDetailHangoutID,
+                        isActive: showingMaps,
+                        onCloseSelection: {
+                            selectedMapHangoutID = nil
+                            openingMapDetailHangoutID = nil
+                        },
+                        onLocateMe: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                mapRegion.center = userCoordinate
                             }
-                        )
-                        .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .toolbar(.hidden, for: .navigationBar)
+                        },
+                        onOpenDetail: { hangout in
+                            FriendZoneHaptics.selection()
+                            openingMapDetailHangoutID = hangout.id
+                            let openingID = hangout.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                guard openingMapDetailHangoutID == openingID else { return }
+                                mapDetailHangout = hangout
+                                openingMapDetailHangoutID = nil
+                            }
+                        },
+                        onReportHangout: { _ in
+                            FriendZoneHaptics.lightImpact()
+                            isShowingMapReportAcknowledgement = true
+                        },
+                        onOpenHangouts: {
+                            withAnimation(FriendZoneTheme.Motion.easeOutExpo) {
+                                selectedTab = .hangouts
+                            }
+                        }
+                    )
                     .frame(width: pageWidth)
                 }
                 .offset(x: showingMaps ? -pageWidth : 0)
@@ -554,90 +552,94 @@ private struct MapsOverlayView: View {
     let onOpenHangouts: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Explore nearby")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XL, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                    Text("\(hangouts.count) hangouts")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.primary)
-                        .padding(.horizontal, 10)
-                        .frame(height: 22)
-                        .background(FriendZoneTheme.Colors.primarySoft)
-                        .clipShape(Capsule())
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 18)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-                .background(.ultraThinMaterial)
-                .opacity(isActive ? 1 : 0.0)
-                .offset(y: isActive ? 0 : -8)
-                .animation(.easeOut(duration: 0.24), value: isActive)
-
-                Spacer()
-            }
-
-            if let selectedHangout {
-                markerInfoPanel(
-                    selectedHangout,
-                    isOpeningDetail: openingDetailHangoutID == selectedHangout.id
-                )
+        GeometryReader { proxy in
+            let topInset = max(8, proxy.safeAreaInsets.top)
+            let bottomInset = max(0, proxy.safeAreaInsets.bottom)
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Explore nearby")
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XL, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        Text("\(hangouts.count) hangouts")
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.primary)
+                            .padding(.horizontal, 10)
+                            .frame(height: 22)
+                            .background(FriendZoneTheme.Colors.primarySoft)
+                            .clipShape(Capsule())
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, topInset + 10)
                     .padding(.horizontal, 16)
-                    .padding(.top, 104)
-                    .padding(.bottom, 12)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.bottom, 10)
+                    .background(.ultraThinMaterial)
                     .opacity(isActive ? 1 : 0.0)
-                    .offset(y: isActive ? 0 : -6)
-            }
-
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button(action: onLocateMe) {
-                        Image(systemName: "location")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 50, height: 50)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color(hex: "#0F172A"), Color(hex: "#1F2937")],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .clipShape(Circle())
-                            .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 4)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 96)
-                    .opacity(isActive ? 1 : 0)
-                    .offset(y: isActive ? 0 : 12)
+                    .offset(y: isActive ? 0 : -8)
                     .animation(.easeOut(duration: 0.24), value: isActive)
+
+                    Spacer()
                 }
-            }
-        }
-        .background(Color.clear)
-        .contentShape(Rectangle())
-        .allowsHitTesting(isActive)
-        .animation(.easeOut(duration: 0.24), value: isActive)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 18)
-                .onEnded { value in
-                    let deltaX = value.translation.width
-                    let deltaY = value.translation.height
-                    let isHorizontal = abs(deltaX) > abs(deltaY) * 1.2
-                    if isHorizontal, deltaX > 45 {
-                        onOpenHangouts()
+
+                if let selectedHangout {
+                    markerInfoPanel(
+                        selectedHangout,
+                        isOpeningDetail: openingDetailHangoutID == selectedHangout.id
+                    )
+                        .padding(.horizontal, 16)
+                        .padding(.top, topInset + 96)
+                        .padding(.bottom, 12)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .opacity(isActive ? 1 : 0.0)
+                        .offset(y: isActive ? 0 : -6)
+                }
+
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: onLocateMe) {
+                            Image(systemName: "location")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 50, height: 50)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(hex: "#0F172A"), Color(hex: "#1F2937")],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .clipShape(Circle())
+                                .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 4)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 16)
+                        .padding(.bottom, max(96, bottomInset + 74))
+                        .opacity(isActive ? 1 : 0)
+                        .offset(y: isActive ? 0 : 12)
+                        .animation(.easeOut(duration: 0.24), value: isActive)
                     }
                 }
-        )
-        .animation(.easeOut(duration: 0.2), value: selectedHangout?.id)
+            }
+            .background(Color.clear)
+            .contentShape(Rectangle())
+            .allowsHitTesting(isActive)
+            .animation(.easeOut(duration: 0.24), value: isActive)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 18)
+                    .onEnded { value in
+                        let deltaX = value.translation.width
+                        let deltaY = value.translation.height
+                        let isHorizontal = abs(deltaX) > abs(deltaY) * 1.2
+                        if isHorizontal, deltaX > 45 {
+                            onOpenHangouts()
+                        }
+                    }
+            )
+            .animation(.easeOut(duration: 0.2), value: selectedHangout?.id)
+        }
     }
 
     private func markerInfoPanel(_ hangout: HangoutItem, isOpeningDetail: Bool) -> some View {

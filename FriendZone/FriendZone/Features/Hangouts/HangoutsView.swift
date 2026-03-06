@@ -2238,11 +2238,41 @@ private struct NativeProfileHubView: View {
     private var statsGrid: some View {
         let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
         return LazyVGrid(columns: columns, spacing: 10) {
-            profileStat("🎉", "37", "ATTENDED")
-            profileStat("🎯", "12", "HOSTED")
-            profileStat("⭐", "4.9", "RATING")
-            profileStat("👥", "128", "FOLLOWERS")
-            profileStat("🤝", "204", "FOLLOWING")
+            NavigationLink {
+                NativePlansHubView(onClose: onClose)
+            } label: {
+                profileStatCard("🎉", "37", "ATTENDED", interactive: true)
+            }
+            .buttonStyle(.plain)
+
+            NavigationLink {
+                NativePlansHubView(onClose: onClose)
+            } label: {
+                profileStatCard("🎯", "12", "HOSTED", interactive: true)
+            }
+            .buttonStyle(.plain)
+
+            profileStatCard("⭐", "4.9", "RATING", interactive: false)
+
+            NavigationLink {
+                NativePlaceholderHubView(
+                    title: "Followers",
+                    message: "Your followers list will appear here."
+                )
+            } label: {
+                profileStatCard("👥", "128", "FOLLOWERS", interactive: true)
+            }
+            .buttonStyle(.plain)
+
+            NavigationLink {
+                NativePlaceholderHubView(
+                    title: "Following",
+                    message: "Accounts you follow will appear here."
+                )
+            } label: {
+                profileStatCard("🤝", "204", "FOLLOWING", interactive: true)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -2284,7 +2314,7 @@ private struct NativeProfileHubView: View {
             }
     }
 
-    private func profileStat(_ emoji: String, _ value: String, _ label: String) -> some View {
+    private func profileStatCard(_ emoji: String, _ value: String, _ label: String, interactive: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
                 Text(emoji)
@@ -2304,6 +2334,14 @@ private struct NativeProfileHubView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .overlay(alignment: .topTrailing) {
+            if interactive {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                    .padding(10)
+            }
         }
     }
 
@@ -2409,228 +2447,231 @@ private struct NativeSettingsHubView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
+            VStack(spacing: 0) {
                 headerCard
 
-                settingsSection(title: "Account") {
-                    NavigationLink {
-                        NativeChangePasswordHubView()
-                    } label: {
-                        settingsNavRow(icon: "lock.fill", title: "Change password", subtitle: "Update your password", showsChevron: true)
+                VStack(spacing: 16) {
+                    settingsSection(title: "Account") {
+                        NavigationLink {
+                            NativeChangePasswordHubView()
+                        } label: {
+                            settingsNavRow(icon: "lock.fill", title: "Change password", subtitle: "Update your password", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider().padding(.leading, 58)
+
+                        NavigationLink {
+                            NativeEmailSettingsHubView()
+                        } label: {
+                            settingsNavRow(icon: "envelope.fill", title: "Email address", subtitle: "safaeralabs@example.com", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
-                    Divider().padding(.leading, 58)
-
-                    NavigationLink {
-                        NativeEmailSettingsHubView()
-                    } label: {
-                        settingsNavRow(icon: "envelope.fill", title: "Email address", subtitle: "safaeralabs@example.com", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                settingsSection(title: "Verification") {
-                    switch verificationStatus {
-                    case .verified:
-                        settingsStaticRow(icon: "checkmark.seal.fill", title: "Verified account", subtitle: "Your profile has a verification badge")
-                    case .pending:
-                        settingsStaticRow(icon: "hourglass.circle.fill", title: "Request pending", subtitle: "Your verification request is under review")
-                    case .none:
-                        VStack(alignment: .leading, spacing: 12) {
-                            settingsStaticRow(icon: "sparkles", title: "Get verified", subtitle: "Apply for a verification badge on your profile")
-                            TextEditor(text: $verificationNote)
-                                .font(.system(size: 14))
-                                .frame(height: 90)
-                                .padding(10)
-                                .background(FriendZoneTheme.Colors.background)
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                                }
-                            Button {
-                                verificationStatus = .pending
-                            } label: {
-                                Text("Request verification")
-                                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 42)
-                                    .background(FriendZoneTheme.Colors.primary)
+                    settingsSection(title: "Verification") {
+                        switch verificationStatus {
+                        case .verified:
+                            settingsStaticRow(icon: "checkmark.seal.fill", title: "Verified account", subtitle: "Your profile has a verification badge")
+                        case .pending:
+                            settingsStaticRow(icon: "hourglass.circle.fill", title: "Request pending", subtitle: "Your verification request is under review")
+                        case .none:
+                            VStack(alignment: .leading, spacing: 12) {
+                                settingsStaticRow(icon: "sparkles", title: "Get verified", subtitle: "Apply for a verification badge on your profile")
+                                TextEditor(text: $verificationNote)
+                                    .font(.system(size: 14))
+                                    .frame(height: 90)
+                                    .padding(10)
+                                    .background(FriendZoneTheme.Colors.background)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                                    }
+                                Button {
+                                    verificationStatus = .pending
+                                } label: {
+                                    Text("Request verification")
+                                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 42)
+                                        .background(FriendZoneTheme.Colors.primary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(12)
+                        }
+                    }
+
+                    settingsSection(title: "Privacy") {
+                        settingsToggleRow(icon: "location.fill", title: "Location sharing", subtitle: "Show your location to nearby users", isOn: $locationSharing)
+                        Divider().padding(.leading, 58)
+                        settingsToggleRow(icon: "arrow.left.and.right", title: "Show distance", subtitle: "Display distance on profile", isOn: $showDistance)
+                        Divider().padding(.leading, 58)
+                        settingsToggleRow(icon: "person.crop.circle.badge.xmark", title: "Private account", subtitle: "Only accepted people can see details", isOn: $privateAccount)
+                        Divider().padding(.leading, 58)
+                        NavigationLink {
+                            NativeBlockedUsersHubView()
+                        } label: {
+                            settingsNavRow(icon: "nosign", title: "Blocked users", subtitle: "Manage blocked accounts", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    settingsSection(title: "Notifications") {
+                        settingsToggleRow(icon: "bell.fill", title: "Push notifications", subtitle: "Get updates about hangouts", isOn: $pushNotifications)
+                        Divider().padding(.leading, 58)
+                        NavigationLink {
+                            NativeNotificationPreferencesHubView()
+                        } label: {
+                            settingsNavRow(icon: "slider.horizontal.3", title: "Notification preferences", subtitle: "Customize what you receive", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    settingsSection(title: "Creator Program") {
+                        if hasCreatorRole {
+                            NavigationLink {
+                                NativePlaceholderHubView(
+                                    title: "Creator Space",
+                                    message: "Manage your events, venues and offers."
+                                )
+                            } label: {
+                                settingsNavRow(icon: "building.2.fill", title: "Creator space", subtitle: "Manage your creator dashboard", showsChevron: true)
+                            }
+                            .buttonStyle(.plain)
+                            Divider().padding(.leading, 58)
+                        }
+
+                        NavigationLink {
+                            NativePlaceholderHubView(
+                                title: "Become a Creator",
+                                message: "Apply as Event Creator or Venue Owner."
+                            )
+                        } label: {
+                            settingsNavRow(icon: "rocket.fill", title: hasCreatorRole ? "Apply for more roles" : "Become a creator", subtitle: "Apply as Event Creator or Venue Owner", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if isStaff {
+                        settingsSection(title: "Admin") {
+                            NavigationLink {
+                                NativePlaceholderHubView(
+                                    title: "Role Requests",
+                                    message: "Review creator role applications."
+                                )
+                            } label: {
+                                settingsNavRow(icon: "person.text.rectangle.fill", title: "Role requests", subtitle: "Review creator applications", showsChevron: true)
+                            }
+                            .buttonStyle(.plain)
+
+                            Divider().padding(.leading, 58)
+
+                            NavigationLink {
+                                NativePlaceholderHubView(
+                                    title: "Verification Requests",
+                                    message: "Review user verification applications."
+                                )
+                            } label: {
+                                settingsNavRow(icon: "checkmark.seal.fill", title: "Verification requests", subtitle: "Review user applications", showsChevron: true)
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(12)
                     }
-                }
 
-                settingsSection(title: "Privacy") {
-                    settingsToggleRow(icon: "location.fill", title: "Location sharing", subtitle: "Show your location to nearby users", isOn: $locationSharing)
-                    Divider().padding(.leading, 58)
-                    settingsToggleRow(icon: "arrow.left.and.right", title: "Show distance", subtitle: "Display distance on profile", isOn: $showDistance)
-                    Divider().padding(.leading, 58)
-                    settingsToggleRow(icon: "person.crop.circle.badge.xmark", title: "Private account", subtitle: "Only accepted people can see details", isOn: $privateAccount)
-                    Divider().padding(.leading, 58)
-                    NavigationLink {
-                        NativeBlockedUsersHubView()
-                    } label: {
-                        settingsNavRow(icon: "nosign", title: "Blocked users", subtitle: "Manage blocked accounts", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                settingsSection(title: "Notifications") {
-                    settingsToggleRow(icon: "bell.fill", title: "Push notifications", subtitle: "Get updates about hangouts", isOn: $pushNotifications)
-                    Divider().padding(.leading, 58)
-                    NavigationLink {
-                        NativeNotificationPreferencesHubView()
-                    } label: {
-                        settingsNavRow(icon: "slider.horizontal.3", title: "Notification preferences", subtitle: "Customize what you receive", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                settingsSection(title: "Creator Program") {
-                    if hasCreatorRole {
+                    settingsSection(title: "Support") {
                         NavigationLink {
-                            NativePlaceholderHubView(
-                                title: "Creator Space",
-                                message: "Manage your events, venues and offers."
-                            )
+                            NativeHelpView()
                         } label: {
-                            settingsNavRow(icon: "building.2.fill", title: "Creator space", subtitle: "Manage your creator dashboard", showsChevron: true)
-                        }
-                        .buttonStyle(.plain)
-                        Divider().padding(.leading, 58)
-                    }
-
-                    NavigationLink {
-                        NativePlaceholderHubView(
-                            title: "Become a Creator",
-                            message: "Apply as Event Creator or Venue Owner."
-                        )
-                    } label: {
-                        settingsNavRow(icon: "rocket.fill", title: hasCreatorRole ? "Apply for more roles" : "Become a creator", subtitle: "Apply as Event Creator or Venue Owner", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if isStaff {
-                    settingsSection(title: "Admin") {
-                        NavigationLink {
-                            NativePlaceholderHubView(
-                                title: "Role Requests",
-                                message: "Review creator role applications."
-                            )
-                        } label: {
-                            settingsNavRow(icon: "person.text.rectangle.fill", title: "Role requests", subtitle: "Review creator applications", showsChevron: true)
+                            settingsNavRow(icon: "questionmark.circle.fill", title: "Help center", subtitle: "Get help and FAQs", showsChevron: true)
                         }
                         .buttonStyle(.plain)
 
                         Divider().padding(.leading, 58)
 
                         NavigationLink {
-                            NativePlaceholderHubView(
-                                title: "Verification Requests",
-                                message: "Review user verification applications."
-                            )
+                            NativeFeedbackHubView()
                         } label: {
-                            settingsNavRow(icon: "checkmark.seal.fill", title: "Verification requests", subtitle: "Review user applications", showsChevron: true)
+                            settingsNavRow(icon: "bubble.left.fill", title: "Send feedback", subtitle: "Help us improve", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider().padding(.leading, 58)
+
+                        NavigationLink {
+                            NativeReportProblemHubView()
+                        } label: {
+                            settingsNavRow(icon: "exclamationmark.triangle.fill", title: "Report a problem", subtitle: "Let us know about issues", showsChevron: true)
                         }
                         .buttonStyle(.plain)
                     }
-                }
 
-                settingsSection(title: "Support") {
-                    NavigationLink {
-                        NativeHelpView()
-                    } label: {
-                        settingsNavRow(icon: "questionmark.circle.fill", title: "Help center", subtitle: "Get help and FAQs", showsChevron: true)
+                    settingsSection(title: "Legal") {
+                        NavigationLink {
+                            NativeTermsView()
+                        } label: {
+                            settingsNavRow(icon: "doc.text.fill", title: "Terms of service", subtitle: "Rules and legal terms", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider().padding(.leading, 58)
+
+                        NavigationLink {
+                            NativePrivacyView()
+                        } label: {
+                            settingsNavRow(icon: "lock.shield.fill", title: "Privacy policy", subtitle: "How your data is handled", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
-                    Divider().padding(.leading, 58)
-
-                    NavigationLink {
-                        NativeFeedbackHubView()
-                    } label: {
-                        settingsNavRow(icon: "bubble.left.fill", title: "Send feedback", subtitle: "Help us improve", showsChevron: true)
+                    settingsSection(title: "About") {
+                        VStack(spacing: 4) {
+                            Text("FriendZone v1.0.0")
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                            Text("Copyright 2025 FriendZone Inc.")
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                     }
-                    .buttonStyle(.plain)
 
-                    Divider().padding(.leading, 58)
-
-                    NavigationLink {
-                        NativeReportProblemHubView()
-                    } label: {
-                        settingsNavRow(icon: "exclamationmark.triangle.fill", title: "Report a problem", subtitle: "Let us know about issues", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                settingsSection(title: "Legal") {
-                    NavigationLink {
-                        NativeTermsView()
-                    } label: {
-                        settingsNavRow(icon: "doc.text.fill", title: "Terms of service", subtitle: "Rules and legal terms", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-
-                    Divider().padding(.leading, 58)
-
-                    NavigationLink {
-                        NativePrivacyView()
-                    } label: {
-                        settingsNavRow(icon: "lock.shield.fill", title: "Privacy policy", subtitle: "How your data is handled", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                settingsSection(title: "About") {
-                    VStack(spacing: 4) {
-                        Text("FriendZone v1.0.0")
+                    VStack(spacing: 10) {
+                        Button("Log out") {}
                             .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                        Text("Copyright 2025 FriendZone Inc.")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(FriendZoneTheme.Colors.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.5)
+                            }
+                            .buttonStyle(.plain)
+
+                        Button("Delete account") {}
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                            .foregroundColor(FriendZoneTokens.Colors.errorStrong)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(FriendZoneTokens.Colors.error.opacity(0.10))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(FriendZoneTokens.Colors.error.opacity(0.24), lineWidth: 1.5)
+                            }
+                            .buttonStyle(.plain)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
                 }
-
-                VStack(spacing: 10) {
-                    Button("Log out") {}
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(FriendZoneTheme.Colors.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.5)
-                        }
-                        .buttonStyle(.plain)
-
-                    Button("Delete account") {}
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                        .foregroundColor(FriendZoneTokens.Colors.errorStrong)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(FriendZoneTokens.Colors.error.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(FriendZoneTokens.Colors.error.opacity(0.24), lineWidth: 1.5)
-                        }
-                        .buttonStyle(.plain)
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .padding(16)
-            .padding(.bottom, 24)
         }
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("Settings")
@@ -2652,14 +2693,11 @@ private struct NativeSettingsHubView: View {
         }
         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XL, weight: .bold))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 18)
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
         .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .friendZoneShadow(FriendZoneTheme.Shadows.sm)
     }
 
@@ -3034,26 +3072,30 @@ private struct NativePlansHubView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 14) {
+            VStack(spacing: 0) {
                 headerCard
-                tabSwitch
-                if currentEntries.isEmpty {
-                    emptyState
-                } else {
-                    VStack(spacing: 10) {
-                        ForEach(Array(currentEntries.enumerated()), id: \.offset) { _, entry in
-                            switch entry {
-                            case let .hangout(hangout):
-                                hangoutPlanCard(hangout)
-                            case let .solo(event):
-                                soloEventCard(event)
+
+                VStack(spacing: 14) {
+                    tabSwitch
+                    if currentEntries.isEmpty {
+                        emptyState
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(Array(currentEntries.enumerated()), id: \.offset) { _, entry in
+                                switch entry {
+                                case let .hangout(hangout):
+                                    hangoutPlanCard(hangout)
+                                case let .solo(event):
+                                    soloEventCard(event)
+                                }
                             }
                         }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .padding(16)
-            .padding(.bottom, 24)
         }
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("Plans")
@@ -3073,16 +3115,14 @@ private struct NativePlansHubView: View {
             + Text("Plans")
                 .foregroundColor(FriendZoneTheme.Colors.primary)
         }
-        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXL, weight: .bold))
+        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XL, weight: .bold))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
         .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .friendZoneShadow(FriendZoneTheme.Shadows.sm)
     }
 
     private var tabSwitch: some View {
@@ -3129,6 +3169,8 @@ private struct NativePlansHubView: View {
             FriendZoneHaptics.selection()
         } label: {
             HStack(spacing: 5) {
+                Text(tab.icon)
+                    .font(.system(size: 12))
                 Text(tab.title)
                 if count > 0 {
                     Text("\(count)")
