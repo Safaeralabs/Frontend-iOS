@@ -186,7 +186,7 @@ struct HangoutsView: View {
                     }
                 }
         )
-        .ignoresSafeArea(.container, edges: [.top, .bottom])
+        .ignoresSafeArea(.container, edges: [.bottom])
     }
 
     private var backdrop: some View {

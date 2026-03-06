@@ -41,52 +41,54 @@ struct HangoutDetailView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color(hex: "#F3F4FA")
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack {
+                Color(hex: "#F3F4FA")
+                    .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    headerSection
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        headerSection
 
-                    if isEnded {
-                        endedBanner
+                        if isEnded {
+                            endedBanner
+                        }
+
+                        locationSection
+
+                        if isHost && !isEnded {
+                            joinRequestsSection
+                        }
+
+                        participantsSection
+
+                        if isHost && !waitlistMembers.isEmpty {
+                            waitlistSection
+                        }
+
+                        if !canOpenChat && !isEnded && !isHost {
+                            lockedChatMessage
+                        }
+
+                        if currentRole == .pending && !isEnded && !isHost {
+                            pendingMessage
+                        } else if currentRole == .waitlisted && !isEnded && !isHost {
+                            waitlistedMessage
+                        }
                     }
-
-                    locationSection
-
-                    if isHost && !isEnded {
-                        joinRequestsSection
-                    }
-
-                    participantsSection
-
-                    if isHost && !waitlistMembers.isEmpty {
-                        waitlistSection
-                    }
-
-                    if !canOpenChat && !isEnded && !isHost {
-                        lockedChatMessage
-                    }
-
-                    if currentRole == .pending && !isEnded && !isHost {
-                        pendingMessage
-                    } else if currentRole == .waitlisted && !isEnded && !isHost {
-                        waitlistedMessage
-                    }
+                    .padding(.top, max(72, proxy.safeAreaInsets.top + 58))
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 180)
+                    .frame(maxWidth: 448)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.top, 84)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 180)
-                .frame(maxWidth: 448)
-                .frame(maxWidth: .infinity)
             }
-        }
-        .overlay(alignment: .top) {
-            topNav
-        }
-        .overlay(alignment: .bottom) {
-            bottomFloatingLayer
+            .overlay(alignment: .top) {
+                topNav(topInset: proxy.safeAreaInsets.top)
+            }
+            .overlay(alignment: .bottom) {
+                bottomFloatingLayer
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .confirmationDialog(
@@ -799,14 +801,14 @@ struct HangoutDetailView: View {
         }
     }
 
-    private var topNav: some View {
+    private func topNav(topInset: CGFloat) -> some View {
         ZStack {
             LinearGradient(
                 colors: [Color(hex: "#F3F4FA"), Color(hex: "#F3F4FA").opacity(0.92), Color.clear],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 112)
+            .frame(height: 100 + topInset)
             .allowsHitTesting(false)
 
             HStack {
@@ -828,7 +830,7 @@ struct HangoutDetailView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.top, max(8, topInset + 2))
             .frame(maxWidth: 448)
             .frame(maxWidth: .infinity)
         }

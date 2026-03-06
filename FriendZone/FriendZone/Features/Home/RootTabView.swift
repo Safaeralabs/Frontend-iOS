@@ -47,7 +47,7 @@ struct RootTabView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, max(2, proxy.safeAreaInsets.bottom - 24))
             }
-            .ignoresSafeArea(.container, edges: [.top, .bottom])
+            .ignoresSafeArea(.container, edges: [.bottom])
             .fullScreenCover(item: $mapDetailHangout, onDismiss: {
                 openingMapDetailHangoutID = nil
             }) { hangout in
@@ -79,14 +79,16 @@ struct RootTabView: View {
             .onAppear {
                 guard !hasRestoredMapViewport else { return }
                 hasRestoredMapViewport = true
+                let restoredLat = min(90, max(-90, storedMapCenterLat))
+                let restoredLon = min(180, max(-180, storedMapCenterLon))
                 mapRegion = MKCoordinateRegion(
                     center: CLLocationCoordinate2D(
-                        latitude: storedMapCenterLat,
-                        longitude: storedMapCenterLon
+                        latitude: restoredLat,
+                        longitude: restoredLon
                     ),
                     span: MKCoordinateSpan(
-                        latitudeDelta: max(0.002, storedMapSpanLatDelta),
-                        longitudeDelta: max(0.002, storedMapSpanLonDelta)
+                        latitudeDelta: min(80, max(0.002, storedMapSpanLatDelta)),
+                        longitudeDelta: min(80, max(0.002, storedMapSpanLonDelta))
                     )
                 )
             }
@@ -286,10 +288,10 @@ struct RootTabView: View {
             return
         }
 
-        storedMapCenterLat = lat
-        storedMapCenterLon = lon
-        storedMapSpanLatDelta = max(0.002, latDelta)
-        storedMapSpanLonDelta = max(0.002, lonDelta)
+        storedMapCenterLat = min(90, max(-90, lat))
+        storedMapCenterLon = min(180, max(-180, lon))
+        storedMapSpanLatDelta = min(80, max(0.002, latDelta))
+        storedMapSpanLonDelta = min(80, max(0.002, lonDelta))
     }
 }
 

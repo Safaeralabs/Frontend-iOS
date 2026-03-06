@@ -17,7 +17,7 @@ struct WebScreen: View {
             ZStack(alignment: .bottomTrailing) {
                 FriendZoneWebView(path: path, reloadKey: reloadKey)
                     .background(FriendZoneTheme.background)
-                    .ignoresSafeArea()
+                    .ignoresSafeArea(edges: .bottom)
 
                 Button {
                     reloadKey = UUID()
@@ -35,7 +35,7 @@ struct WebScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(FriendZoneTheme.background)
-            .ignoresSafeArea(.container, edges: [.top, .bottom])
+            .ignoresSafeArea(.container, edges: [.bottom])
         }
     }
 }
