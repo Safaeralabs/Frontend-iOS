@@ -40,6 +40,7 @@ struct AmbitionsView: View {
         .sheet(item: $presentedHangoutRoute) { route in
             WebScreen(path: route.path)
         }
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
 
     private var heroHeader: some View {

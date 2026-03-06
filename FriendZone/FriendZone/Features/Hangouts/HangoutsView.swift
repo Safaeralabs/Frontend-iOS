@@ -106,6 +106,7 @@ struct HangoutsView: View {
                     viewModel.addCreatedHangout(from: draft)
                 }
             )
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
         }
         .fullScreenCover(isPresented: $isPresentingProfile) {
             NavigationStack {
@@ -113,6 +114,7 @@ struct HangoutsView: View {
                     onClose: { isPresentingProfile = false }
                 )
             }
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
         }
         .fullScreenCover(isPresented: $isPresentingSettings) {
             NavigationStack {
@@ -120,6 +122,7 @@ struct HangoutsView: View {
                     onClose: { isPresentingSettings = false }
                 )
             }
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
         }
         .fullScreenCover(isPresented: $isPresentingNotifications) {
             NavigationStack {
@@ -127,6 +130,7 @@ struct HangoutsView: View {
                     onClose: { isPresentingNotifications = false }
                 )
             }
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
         }
         .fullScreenCover(isPresented: $isPresentingPlans) {
             NavigationStack {
@@ -134,6 +138,7 @@ struct HangoutsView: View {
                     onClose: { isPresentingPlans = false }
                 )
             }
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
         }
         .sheet(isPresented: $isPresentingAdvancedFilters) {
             HangoutsAdvancedFiltersSheet(
@@ -181,6 +186,7 @@ struct HangoutsView: View {
                     }
                 }
         )
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
 
     private var backdrop: some View {

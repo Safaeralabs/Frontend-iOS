@@ -89,26 +89,30 @@ struct CreateHangoutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        ZStack {
+            FriendZoneTheme.Colors.background
+                .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 8) {
-                    stepMeta
+            VStack(spacing: 0) {
+                header
 
-                    if let topErrorMessage {
-                        errorBanner(topErrorMessage)
-                            .padding(.horizontal, FriendZoneTheme.Spacing.md)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        stepMeta
+
+                        if let topErrorMessage {
+                            errorBanner(topErrorMessage)
+                                .padding(.horizontal, FriendZoneTheme.Spacing.md)
+                        }
+
+                        stepContent
                     }
-
-                    stepContent
+                    .padding(.bottom, 20)
                 }
-                .padding(.bottom, 20)
+                .scrollDismissesKeyboard(.interactively)
+                .background(FriendZoneTheme.Colors.background)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background(FriendZoneTheme.Colors.background)
         }
-        .background(FriendZoneTheme.Colors.background)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomComposerDock
         }

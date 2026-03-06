@@ -23,17 +23,16 @@ struct RootTabView: View {
                         AmbitionsView()
                             .navigationBarTitleDisplayMode(.inline)
                     }
-                    .frame(maxWidth: 600)
+                    .toolbar(.hidden, for: .navigationBar)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     hangoutsMapsStage
                 }
 
                 FriendZoneTabBar(selectedTab: $selectedTab)
-                    .frame(maxWidth: 600)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, max(0, proxy.safeAreaInsets.bottom - 10))
+                    .padding(.bottom, max(2, proxy.safeAreaInsets.bottom - 24))
             }
             .ignoresSafeArea(.container, edges: [.top, .bottom])
         }
@@ -85,6 +84,7 @@ struct RootTabView: View {
                         )
                         .navigationBarTitleDisplayMode(.inline)
                     }
+                    .toolbar(.hidden, for: .navigationBar)
                     .frame(width: pageWidth)
 
                     NavigationStack {
@@ -105,6 +105,7 @@ struct RootTabView: View {
                         )
                         .navigationBarTitleDisplayMode(.inline)
                     }
+                    .toolbar(.hidden, for: .navigationBar)
                     .frame(width: pageWidth)
                 }
                 .offset(x: showingMaps ? -pageWidth : 0)

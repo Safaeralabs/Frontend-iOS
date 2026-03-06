@@ -13,24 +13,29 @@ struct WebScreen: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            FriendZoneWebView(path: path, reloadKey: reloadKey)
-                .background(FriendZoneTheme.background)
-                .ignoresSafeArea(edges: .bottom)
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomTrailing) {
+                FriendZoneWebView(path: path, reloadKey: reloadKey)
+                    .background(FriendZoneTheme.background)
+                    .ignoresSafeArea()
 
-            Button {
-                reloadKey = UUID()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(FriendZoneTheme.primary)
-                    .clipShape(Circle())
-                    .friendZoneShadow(FriendZoneTheme.Shadows.md)
+                Button {
+                    reloadKey = UUID()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(FriendZoneTheme.primary)
+                        .clipShape(Circle())
+                        .friendZoneShadow(FriendZoneTheme.Shadows.md)
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, max(16, proxy.safeAreaInsets.bottom + 10))
             }
-            .padding(.trailing, 16)
-            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(FriendZoneTheme.background)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
         }
     }
 }
