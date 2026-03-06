@@ -66,10 +66,21 @@ final class Coordinator: NSObject, WKNavigationDelegate {
     @objc func refreshWebView() {
         webView?.reload()
     }
-
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        syncCookies(from: webView)
         webView.scrollView.refreshControl?.endRefreshing()
     }
+
+    private func syncCookies(from webView: WKWebView) {
+        let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+        cookieStore.getAllCookies { cookies in
+            let sharedStore = HTTPCookieStorage.shared
+            for cookie in cookies {
+                sharedStore.setCookie(cookie)
+            }
+        }
+    }
+
 
     func webView(
         _ webView: WKWebView,

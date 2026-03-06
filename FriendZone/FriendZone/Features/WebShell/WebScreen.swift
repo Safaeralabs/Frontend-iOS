@@ -1,12 +1,20 @@
 import SwiftUI
 
 struct WebScreen: View {
-    let tab: AppTab
+    let path: String
     @State private var reloadKey = UUID()
+
+    init(tab: AppTab) {
+        self.path = tab.path
+    }
+
+    init(path: String) {
+        self.path = path
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            FriendZoneWebView(path: tab.path, reloadKey: reloadKey)
+            FriendZoneWebView(path: path, reloadKey: reloadKey)
                 .background(FriendZoneTheme.background)
                 .ignoresSafeArea(edges: .bottom)
 
@@ -19,7 +27,7 @@ struct WebScreen: View {
                     .frame(width: 48, height: 48)
                     .background(FriendZoneTheme.primary)
                     .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.15), radius: 6, y: 4)
+                    .friendZoneShadow(FriendZoneTheme.Shadows.md)
             }
             .padding(.trailing, 16)
             .padding(.bottom, 16)

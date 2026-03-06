@@ -23,6 +23,10 @@ enum AppTab: String, CaseIterable, Identifiable {
         }
     }
 
+    var isMain: Bool {
+        self == .hangouts
+    }
+
     var path: String {
         switch self {
         case .ambitions: return "/ambitions"
