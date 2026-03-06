@@ -9,6 +9,9 @@ struct RootTabView: View {
     )
     @State private var selectedMapHangoutID: Int?
     @State private var mapHangouts: [HangoutItem] = HangoutsMockData.sample()
+    @State private var mapJoinStatuses: [Int: HangoutJoinStatus] = [:]
+    @State private var mapDetailHangout: HangoutItem?
+    @State private var isShowingMapReportAcknowledgement = false
 
     private let userCoordinate = CLLocationCoordinate2D(latitude: 52.5176, longitude: 13.4095)
 
@@ -35,6 +38,26 @@ struct RootTabView: View {
                     .padding(.bottom, max(2, proxy.safeAreaInsets.bottom - 24))
             }
             .ignoresSafeArea(.container, edges: [.top, .bottom])
+            .fullScreenCover(item: $mapDetailHangout) { hangout in
+                NavigationStack {
+                    HangoutDetailView(
+                        hangout: hangout,
+                        joinStatus: mapJoinStatus(for: hangout),
+                        onRequestJoin: {
+                            mapJoinStatuses[hangout.id] = .requested
+                        },
+                        onCancelRequest: {
+                            mapJoinStatuses[hangout.id] = HangoutJoinStatus.none
+                        }
+                    )
+                }
+                .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+            }
+            .alert("Report sent", isPresented: $isShowingMapReportAcknowledgement) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Thanks. We will review this hangout.")
+            }
         }
     }
 
@@ -97,6 +120,14 @@ struct RootTabView: View {
                                     mapRegion.center = userCoordinate
                                 }
                             },
+                            onOpenDetail: { hangout in
+                                FriendZoneHaptics.selection()
+                                mapDetailHangout = hangout
+                            },
+                            onReportHangout: { _ in
+                                FriendZoneHaptics.lightImpact()
+                                isShowingMapReportAcknowledgement = true
+                            },
                             onOpenHangouts: {
                                 withAnimation(FriendZoneTheme.Motion.easeOutExpo) {
                                     selectedTab = .hangouts
@@ -117,6 +148,13 @@ struct RootTabView: View {
 
     private var selectedMapHangout: HangoutItem? {
         mapHangouts.first(where: { $0.id == selectedMapHangoutID })
+    }
+
+    private func mapJoinStatus(for hangout: HangoutItem) -> HangoutJoinStatus {
+        if let status = mapJoinStatuses[hangout.id] {
+            return status
+        }
+        return hangout.isJoined ? .joined : .none
     }
 
     private var mapBrandTint: some View {
@@ -288,6 +326,8 @@ private struct MapsOverlayView: View {
     let selectedHangout: HangoutItem?
     let onCloseSelection: () -> Void
     let onLocateMe: () -> Void
+    let onOpenDetail: (HangoutItem) -> Void
+    let onReportHangout: (HangoutItem) -> Void
     let onOpenHangouts: () -> Void
 
     var body: some View {
@@ -315,10 +355,12 @@ private struct MapsOverlayView: View {
             }
 
             if let selectedHangout {
-                markerInfoCard(selectedHangout)
+                markerInfoPanel(selectedHangout)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 110)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.top, 104)
+                    .padding(.bottom, 12)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             VStack {
@@ -359,9 +401,10 @@ private struct MapsOverlayView: View {
                     }
                 }
         )
+        .animation(.easeOut(duration: 0.2), value: selectedHangout?.id)
     }
 
-    private func markerInfoCard(_ hangout: HangoutItem) -> some View {
+    private func markerInfoPanel(_ hangout: HangoutItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Text(vibeEmoji(hangout.vibe))
@@ -369,25 +412,72 @@ private struct MapsOverlayView: View {
                     .frame(width: 42, height: 42)
                     .background(vibeColor(hangout.vibe))
                     .clipShape(Circle())
+                    .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(hangout.title)
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                    Text("\(timeLabel(hangout.startAt)) · \(hangout.spotsLeft > 0 ? "\(hangout.spotsLeft) spots left" : "Full")")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 6) {
+                        Text("\(timeLabel(hangout.startAt)) · \(hangout.spotsLeft > 0 ? "\(hangout.spotsLeft) left" : "Full")")
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+
+                        if Calendar.current.isDateInToday(hangout.startAt) {
+                            Text("TODAY")
+                                .font(FriendZoneTheme.Typography.system(9, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .frame(height: 16)
+                                .background(Color(hex: "#FF3B30"))
+                                .clipShape(Capsule())
+                        }
+                    }
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 Button(action: onCloseSelection) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                        .frame(width: 24, height: 24)
-                        .background(Color.black.opacity(0.05))
+                        .frame(width: 30, height: 30)
+                        .background(Color.black.opacity(0.08))
                         .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    onOpenDetail(hangout)
+                } label: {
+                    Text("View details")
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(FriendZoneTheme.Colors.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    onReportHangout(hangout)
+                } label: {
+                    Text("Report")
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.error)
+                        .padding(.horizontal, 12)
+                        .frame(height: 38)
+                        .background(FriendZoneTheme.Colors.error.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(FriendZoneTheme.Colors.error.opacity(0.24), lineWidth: 1)
+                        }
                 }
                 .buttonStyle(.plain)
             }
