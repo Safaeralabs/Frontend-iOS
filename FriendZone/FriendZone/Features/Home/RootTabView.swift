@@ -12,6 +12,9 @@ struct RootTabView: View {
     @State private var mapJoinStatuses: [Int: HangoutJoinStatus] = [:]
     @State private var mapDetailHangout: HangoutItem?
     @State private var isShowingMapReportAcknowledgement = false
+    @State private var isShowingMapBlurLift = false
+    @State private var mapTransitionToken = 0
+    @State private var lastTabForTransition: AppTab = .hangouts
 
     private let userCoordinate = CLLocationCoordinate2D(latitude: 52.5176, longitude: 13.4095)
 
@@ -57,6 +60,12 @@ struct RootTabView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Thanks. We will review this hangout.")
+            }
+            .onChange(of: selectedTab) { current in
+                if lastTabForTransition == .hangouts, current == .maps {
+                    triggerMapBlurLift()
+                }
+                lastTabForTransition = current
             }
         }
     }
@@ -114,6 +123,7 @@ struct RootTabView: View {
                         MapsOverlayView(
                             hangouts: mapHangouts,
                             selectedHangout: selectedMapHangout,
+                            isActive: showingMaps,
                             onCloseSelection: { selectedMapHangoutID = nil },
                             onLocateMe: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -141,6 +151,12 @@ struct RootTabView: View {
                 }
                 .offset(x: showingMaps ? -pageWidth : 0)
                 .animation(FriendZoneTheme.Motion.easeOutExpo, value: selectedTab)
+
+                if showingMaps, isShowingMapBlurLift {
+                    mapSeamlessBlurLift
+                        .transition(.opacity)
+                        .zIndex(4)
+                }
             }
             .clipped()
         }
@@ -184,6 +200,35 @@ struct RootTabView: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private var mapSeamlessBlurLift: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.22), Color.white.opacity(0.34), Color.white.opacity(0.44)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private func triggerMapBlurLift() {
+        mapTransitionToken += 1
+        let currentToken = mapTransitionToken
+        isShowingMapBlurLift = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+            guard currentToken == mapTransitionToken else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                isShowingMapBlurLift = false
+            }
+        }
     }
 }
 
@@ -324,6 +369,7 @@ private struct PersistentDiscoveryMapView: View {
 private struct MapsOverlayView: View {
     let hangouts: [HangoutItem]
     let selectedHangout: HangoutItem?
+    let isActive: Bool
     let onCloseSelection: () -> Void
     let onLocateMe: () -> Void
     let onOpenDetail: (HangoutItem) -> Void
@@ -350,6 +396,9 @@ private struct MapsOverlayView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
                 .background(.ultraThinMaterial)
+                .opacity(isActive ? 1 : 0.0)
+                .offset(y: isActive ? 0 : -8)
+                .animation(.easeOut(duration: 0.24), value: isActive)
 
                 Spacer()
             }
@@ -361,6 +410,8 @@ private struct MapsOverlayView: View {
                     .padding(.bottom, 12)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .transition(.move(edge: .top).combined(with: .opacity))
+                    .opacity(isActive ? 1 : 0.0)
+                    .offset(y: isActive ? 0 : -6)
             }
 
             VStack {
@@ -385,11 +436,16 @@ private struct MapsOverlayView: View {
                     .buttonStyle(.plain)
                     .padding(.trailing, 16)
                     .padding(.bottom, 96)
+                    .opacity(isActive ? 1 : 0)
+                    .offset(y: isActive ? 0 : 12)
+                    .animation(.easeOut(duration: 0.24), value: isActive)
                 }
             }
         }
         .background(Color.clear)
         .contentShape(Rectangle())
+        .allowsHitTesting(isActive)
+        .animation(.easeOut(duration: 0.24), value: isActive)
         .simultaneousGesture(
             DragGesture(minimumDistance: 18)
                 .onEnded { value in
