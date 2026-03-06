@@ -7,7 +7,7 @@ struct CreateHangoutView: View {
     let onCancel: () -> Void
     let onCreate: (CreateHangoutDraft) -> Void
 
-    @State private var draft = CreateHangoutDraft()
+    @State private var draft: CreateHangoutDraft
     @State private var currentStep = 0
     @State private var highlightedFields: Set<ValidationField> = []
     @State private var topErrorMessage: String?
@@ -88,6 +88,16 @@ struct CreateHangoutView: View {
         return [.init(coordinate: miniMapCoordinate)]
     }
 
+    init(
+        onCancel: @escaping () -> Void,
+        onCreate: @escaping (CreateHangoutDraft) -> Void,
+        initialDraft: CreateHangoutDraft = CreateHangoutDraft()
+    ) {
+        self.onCancel = onCancel
+        self.onCreate = onCreate
+        _draft = State(initialValue: initialDraft)
+    }
+
     var body: some View {
         ZStack {
             FriendZoneTheme.Colors.background
@@ -95,6 +105,13 @@ struct CreateHangoutView: View {
 
             VStack(spacing: 0) {
                 header
+
+                if draft.sourceType != .hangout {
+                    sourceBadge
+                        .padding(.horizontal, FriendZoneTheme.Spacing.md)
+                        .padding(.top, FriendZoneTheme.Spacing.sm)
+                        .padding(.bottom, FriendZoneTheme.Spacing.sm)
+                }
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 8) {
@@ -175,6 +192,50 @@ struct CreateHangoutView: View {
             Rectangle()
                 .fill(Color.black.opacity(0.06))
                 .frame(height: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var sourceBadge: some View {
+        let tint = sourceTagTint(for: draft.sourceType)
+        HStack(spacing: 10) {
+            Image(systemName: sourceIcon(for: draft.sourceType))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(draft.sourceType.badgeTitle)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
+                    .foregroundColor(tint)
+
+                if let context = draft.sourceLabel, !context.isEmpty {
+                    Text(context)
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
+    }
+
+    private func sourceTagTint(for sourceType: HangoutSourceType) -> Color {
+        switch sourceType {
+        case .event: return Color(hex: "#0E7490")
+        case .offer: return Color(hex: "#B45309")
+        default: return FriendZoneTheme.Colors.primary
+        }
+    }
+
+    private func sourceIcon(for sourceType: HangoutSourceType) -> String {
+        switch sourceType {
+        case .event: return "calendar.badge.plus"
+        case .offer: return "tag.fill"
+        default: return "sparkles"
         }
     }
 
@@ -478,6 +539,18 @@ struct CreateHangoutView: View {
     private var whenStep: some View {
         formSection(title: "WHEN", highlighted: hasError(.dateTime) || timeHighlight) {
             VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 4) {
+                    timeFlexibilityButton(title: "Exact time", active: !draft.isTimeFlexible) {
+                        draft.isTimeFlexible = false
+                    }
+                    timeFlexibilityButton(title: "I am flexible", active: draft.isTimeFlexible) {
+                        draft.isTimeFlexible = true
+                    }
+                }
+                .padding(4)
+                .background(Color.black.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
                 HStack(spacing: 8) {
                     quickDateButton("Today", daysFromNow: 0)
                     quickDateButton("Tomorrow", daysFromNow: 1)
@@ -501,21 +574,23 @@ struct CreateHangoutView: View {
                 )
 
                 HStack(alignment: .top, spacing: 10) {
-                    pickerColumn(
-                        title: "Time",
-                        highlighted: timeHighlight,
-                        content: {
-                            ForEach(timeOptions, id: \.self) { value in
-                                pickerOption(
-                                    title: value,
-                                    active: selectedTime == value,
-                                    emphasize: true
-                                ) {
-                                    applyTime(value)
+                    if !draft.isTimeFlexible {
+                        pickerColumn(
+                            title: "Time",
+                            highlighted: timeHighlight,
+                            content: {
+                                ForEach(timeOptions, id: \.self) { value in
+                                    pickerOption(
+                                        title: value,
+                                        active: selectedTime == value,
+                                        emphasize: true
+                                    ) {
+                                        applyTime(value)
+                                    }
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
 
                     pickerColumn(
                         title: "Duration",
@@ -535,6 +610,10 @@ struct CreateHangoutView: View {
                     )
                 }
 
+                if draft.isTimeFlexible {
+                    emptyHint("Only date is fixed. Exact time stays flexible.")
+                }
+
                 if let message = fieldErrorMessage(.dateTime) {
                     fieldError(message)
                 }
@@ -547,6 +626,7 @@ struct CreateHangoutView: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(spacing: 12) {
                     capacityRow
+                    peopleLimitRow
                     visibilityRow
                 }
 
@@ -725,7 +805,7 @@ struct CreateHangoutView: View {
 
                     Text(previewSpotsLabel)
                         .font(FriendZoneTheme.Typography.system(9, weight: .bold))
-                        .foregroundColor(previewSpotsLeft > 0 ? previewAccentColor : FriendZoneTheme.Colors.error)
+                        .foregroundColor(previewSpotsColor)
                         .padding(.top, 1)
 
                     previewTicketBarcode
@@ -823,19 +903,52 @@ struct CreateHangoutView: View {
             Spacer()
 
             HStack(spacing: FriendZoneTheme.Spacing.md) {
-                roundStepButton(symbol: "minus", disabled: draft.capacity <= 2) {
+                roundStepButton(symbol: "minus", disabled: draft.isCapacityUnlimited || draft.capacity <= 2) {
                     draft.capacity = max(2, draft.capacity - 1)
                 }
 
-                Text("\(draft.capacity)")
+                Text(draft.isCapacityUnlimited ? "∞" : "\(draft.capacity)")
                     .font(FriendZoneTheme.Typography.system(18, weight: .bold))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                     .frame(minWidth: 24)
 
-                roundStepButton(symbol: "plus", disabled: draft.capacity >= 20) {
+                roundStepButton(symbol: "plus", disabled: draft.isCapacityUnlimited || draft.capacity >= 20) {
                     draft.capacity = min(20, draft.capacity + 1)
                 }
             }
+        }
+        .padding(FriendZoneTheme.Spacing.md)
+        .background(Color.black.opacity(0.02))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var peopleLimitRow: some View {
+        HStack {
+            HStack(spacing: FriendZoneTheme.Spacing.sm) {
+                Text("Limit")
+                    .font(.system(size: 20))
+                Text("People limit")
+                    .font(FriendZoneTheme.Typography.system(14, weight: .regular))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                peopleLimitButton(title: "Limited", active: !draft.isCapacityUnlimited) {
+                    draft.isCapacityUnlimited = false
+                }
+                peopleLimitButton(title: "Unlimited", active: draft.isCapacityUnlimited) {
+                    draft.isCapacityUnlimited = true
+                }
+            }
+            .padding(4)
+            .background(Color.black.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .padding(FriendZoneTheme.Spacing.md)
         .background(Color.black.opacity(0.02))
@@ -1195,6 +1308,41 @@ struct CreateHangoutView: View {
         .buttonStyle(.plain)
     }
 
+    private func timeFlexibilityButton(title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            FriendZoneHaptics.selection()
+        } label: {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(13, weight: active ? .semibold : .medium))
+                .foregroundColor(active ? FriendZoneTheme.Colors.textPrimary : FriendZoneTheme.Colors.textSecondary)
+                .padding(.horizontal, 16)
+                .frame(height: 32)
+                .frame(maxWidth: .infinity)
+                .background(active ? FriendZoneTheme.Colors.surface : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .shadow(color: active ? Color.black.opacity(0.10) : .clear, radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func peopleLimitButton(title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            FriendZoneHaptics.selection()
+        } label: {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(13, weight: active ? .semibold : .medium))
+                .foregroundColor(active ? FriendZoneTheme.Colors.textPrimary : FriendZoneTheme.Colors.textSecondary)
+                .padding(.horizontal, 16)
+                .frame(height: 32)
+                .background(active ? FriendZoneTheme.Colors.surface : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .shadow(color: active ? Color.black.opacity(0.10) : .clear, radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
     private func audienceButton(_ title: String, option: HangoutGenderPreference) -> some View {
         let active = draft.genderPreference == option
         return Button {
@@ -1295,6 +1443,9 @@ struct CreateHangoutView: View {
     }
 
     private var previewTimeLabel: String {
+        if draft.isTimeFlexible {
+            return "Flexible"
+        }
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
         return formatter.string(from: previewStartAt)
@@ -1306,12 +1457,21 @@ struct CreateHangoutView: View {
         return formatter.string(from: previewStartAt).uppercased()
     }
 
-    private var previewSpotsLeft: Int {
-        max(0, draft.capacity - 1)
+    private var previewSpotsLeft: Int? {
+        if draft.isCapacityUnlimited {
+            return nil
+        }
+        return max(0, draft.capacity - 1)
     }
 
     private var previewSpotsLabel: String {
-        previewSpotsLeft > 0 ? "\(previewSpotsLeft) Left" : "Full"
+        guard let previewSpotsLeft else { return "Unlimited" }
+        return previewSpotsLeft > 0 ? "\(previewSpotsLeft) Left" : "Full"
+    }
+
+    private var previewSpotsColor: Color {
+        guard let previewSpotsLeft else { return previewAccentColor }
+        return previewSpotsLeft > 0 ? previewAccentColor : FriendZoneTheme.Colors.error
     }
 
     private var previewTicketCode: String {
@@ -1363,6 +1523,9 @@ struct CreateHangoutView: View {
     }
 
     private var previewCountdownText: String {
+        if draft.isTimeFlexible {
+            return "FLEX"
+        }
         let diff = Int(previewStartAt.timeIntervalSince(Date()))
         if diff <= 0 { return "NOW" }
         let minutes = diff / 60
@@ -1502,7 +1665,11 @@ struct CreateHangoutView: View {
             errors.append(.init(field: .location, message: "Select a specific place", focus: .location))
         }
 
-        if !isDateTimeInFuture() {
+        if draft.isTimeFlexible {
+            if !isFlexibleDateValid() {
+                errors.append(.init(field: .dateTime, message: "Cannot be in the past", focus: nil))
+            }
+        } else if !isDateTimeInFuture() {
             errors.append(.init(field: .dateTime, message: "Cannot be in the past", focus: nil))
         }
 
@@ -1567,6 +1734,10 @@ struct CreateHangoutView: View {
     }
 
     private func composeStartDate() -> Date? {
+        if draft.isTimeFlexible {
+            return composeFlexibleStartDate()
+        }
+
         let chunks = selectedTime.split(separator: ":")
         guard chunks.count == 2,
               let hour = Int(chunks[0]),
@@ -1583,9 +1754,50 @@ struct CreateHangoutView: View {
         )
     }
 
+    private func composeFlexibleStartDate() -> Date? {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: selectedDate)
+        let todayStart = calendar.startOfDay(for: Date())
+
+        guard dayStart >= todayStart else { return nil }
+
+        if dayStart > todayStart {
+            return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: dayStart)
+        }
+
+        let minimumStart = Date().addingTimeInterval(30 * 60)
+        return roundUpToHalfHour(minimumStart)
+    }
+
     private func isDateTimeInFuture() -> Bool {
         guard let selected = composeStartDate() else { return false }
         return selected > Date()
+    }
+
+    private func isFlexibleDateValid() -> Bool {
+        Calendar.current.startOfDay(for: selectedDate) >= Calendar.current.startOfDay(for: Date())
+    }
+
+    private func roundUpToHalfHour(_ date: Date) -> Date {
+        let calendar = Calendar.current
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        var hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        let roundedMinute: Int
+
+        if minute == 0 || minute == 30 {
+            roundedMinute = minute
+        } else if minute < 30 {
+            roundedMinute = 30
+        } else {
+            roundedMinute = 0
+            hour += 1
+        }
+
+        components.hour = hour
+        components.minute = roundedMinute
+        components.second = 0
+        return calendar.date(from: components) ?? date
     }
 
     private func updateMiniMapCoordinate() {
@@ -1784,6 +1996,10 @@ private struct FlexibleChips<Data: RandomAccessCollection, Content: View>: View 
     }
 }
 
-#Preview {
-    CreateHangoutView(onCancel: {}, onCreate: { _ in })
+#if DEBUG
+struct CreateHangoutView_Previews: PreviewProvider {
+    static var previews: some View {
+        CreateHangoutView(onCancel: {}, onCreate: { _ in })
+    }
 }
+#endif

@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import UIKit
 
 struct RootTabView: View {
     @State private var selectedTab: AppTab = .hangouts
@@ -40,6 +41,7 @@ struct RootTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     hangoutsMapsStage
+                        .ignoresSafeArea(.container, edges: .top)
                 }
 
                 FriendZoneTabBar(selectedTab: $selectedTab)
@@ -123,10 +125,10 @@ struct RootTabView: View {
                 .ignoresSafeArea()
 
                 mapBrandTint
-                    .opacity(showingMaps ? 0.16 : 1)
+                    .opacity(showingMaps ? 0 : 1)
                     .ignoresSafeArea()
                 mapBrandPattern
-                    .opacity(showingMaps ? 0.10 : 1)
+                    .opacity(showingMaps ? 0 : 1)
                     .ignoresSafeArea()
 
                 Rectangle()
@@ -185,11 +187,6 @@ struct RootTabView: View {
                         onReportHangout: { _ in
                             FriendZoneHaptics.lightImpact()
                             isShowingMapReportAcknowledgement = true
-                        },
-                        onOpenHangouts: {
-                            withAnimation(FriendZoneTheme.Motion.easeOutExpo) {
-                                selectedTab = .hangouts
-                            }
                         }
                     )
                     .frame(width: pageWidth)
@@ -293,9 +290,13 @@ struct RootTabView: View {
     }
 }
 
-#Preview {
-    RootTabView()
+#if DEBUG
+struct RootTabView_Previews: PreviewProvider {
+    static var previews: some View {
+        RootTabView()
+    }
 }
+#endif
 
 private struct PersistentDiscoveryMapView: View {
     @Binding var region: MKCoordinateRegion
@@ -549,50 +550,30 @@ private struct MapsOverlayView: View {
     let onLocateMe: () -> Void
     let onOpenDetail: (HangoutItem) -> Void
     let onReportHangout: (HangoutItem) -> Void
-    let onOpenHangouts: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
-            let topInset = max(8, proxy.safeAreaInsets.top)
+            let topInset = max(0, proxy.safeAreaInsets.top)
             let bottomInset = max(0, proxy.safeAreaInsets.bottom)
             ZStack(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Explore nearby")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XL, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                        Text("\(hangouts.count) hangouts")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.primary)
-                            .padding(.horizontal, 10)
-                            .frame(height: 22)
-                            .background(FriendZoneTheme.Colors.primarySoft)
-                            .clipShape(Capsule())
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, topInset + 10)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                    .background(.ultraThinMaterial)
-                    .opacity(isActive ? 1 : 0.0)
-                    .offset(y: isActive ? 0 : -8)
-                    .animation(.easeOut(duration: 0.24), value: isActive)
-
-                    Spacer()
-                }
+                mapsHeader(topInset: topInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(isActive)
+                .opacity(isActive ? 1 : 0.0)
+                .offset(y: isActive ? 0 : -8)
+                .animation(.easeOut(duration: 0.24), value: isActive)
 
                 if let selectedHangout {
-                    markerInfoPanel(
+                    markerMiniPreview(
                         selectedHangout,
                         isOpeningDetail: openingDetailHangoutID == selectedHangout.id
                     )
                         .padding(.horizontal, 16)
-                        .padding(.top, topInset + 96)
-                        .padding(.bottom, 12)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.bottom, max(90, bottomInset + 72))
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                         .opacity(isActive ? 1 : 0.0)
-                        .offset(y: isActive ? 0 : -6)
+                        .offset(y: isActive ? 0 : 18)
                 }
 
                 VStack {
@@ -616,7 +597,7 @@ private struct MapsOverlayView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.trailing, 16)
-                        .padding(.bottom, max(96, bottomInset + 74))
+                        .padding(.bottom, max(selectedHangout == nil ? 96 : 188, bottomInset + 74))
                         .opacity(isActive ? 1 : 0)
                         .offset(y: isActive ? 0 : 12)
                         .animation(.easeOut(duration: 0.24), value: isActive)
@@ -624,79 +605,86 @@ private struct MapsOverlayView: View {
                 }
             }
             .background(Color.clear)
-            .contentShape(Rectangle())
-            .allowsHitTesting(isActive)
             .animation(.easeOut(duration: 0.24), value: isActive)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 18)
-                    .onEnded { value in
-                        let deltaX = value.translation.width
-                        let deltaY = value.translation.height
-                        let isHorizontal = abs(deltaX) > abs(deltaY) * 1.2
-                        if isHorizontal, deltaX > 45 {
-                            onOpenHangouts()
-                        }
-                    }
-            )
             .animation(.easeOut(duration: 0.2), value: selectedHangout?.id)
         }
     }
 
-    private func markerInfoPanel(_ hangout: HangoutItem, isOpeningDetail: Bool) -> some View {
+    private var hangoutsCountLabel: String {
+        let count = hangouts.count
+        let suffix = count == 1 ? "" : "s"
+        return "\(count) hangout\(suffix)"
+    }
+
+    private func mapsHeader(topInset: CGFloat) -> some View {
+        FriendZoneModuleHeader(
+            leadingText: "Explore ",
+            highlightText: "Maps",
+            topInset: 0,
+            horizontalPadding: 16
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, topInset + 12)
+    }
+
+    private func markerMiniPreview(_ hangout: HangoutItem, isOpeningDetail: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                Text(vibeEmoji(hangout.vibe))
-                    .font(.system(size: 20))
-                    .frame(width: 42, height: 42)
-                    .background(vibeColor(hangout.vibe))
-                    .clipShape(Circle())
-                    .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
+                previewThumbnail(hangout)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(hangout.title)
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(hangout.locationDisplay.uppercased())
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                         .lineLimit(1)
 
-                    HStack(spacing: 6) {
-                        Text("\(timeLabel(hangout.startAt)) · \(hangout.spotsLeft > 0 ? "\(hangout.spotsLeft) left" : "Full")")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                Text(hangout.title)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .lineLimit(2)
 
-                        if Calendar.current.isDateInToday(hangout.startAt) {
-                            Text("TODAY")
-                                .font(FriendZoneTheme.Typography.system(9, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .frame(height: 16)
-                                .background(Color(hex: "#FF3B30"))
-                                .clipShape(Capsule())
-                        }
-                    }
+                    Text("Hosted by \(hangout.hostName)")
+                        .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                        .lineLimit(1)
                 }
 
                 Spacer(minLength: 0)
 
                 Button(action: onCloseSelection) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 28, height: 28)
                         .background(Color.black.opacity(0.08))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
             }
 
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    mapMetaChip(icon: "clock.fill", text: timeLabel(hangout.startAt))
+                    mapMetaChip(icon: "figure.walk", text: hangout.distanceLabel)
+                    mapMetaChip(icon: "person.2.fill", text: hangout.spotsLeft > 0 ? "\(hangout.spotsLeft) left" : "Full")
+                    mapMetaChip(icon: "tag.fill", text: hangout.priceTier.shortLabel)
+                    if Calendar.current.isDateInToday(hangout.startAt) {
+                        mapMetaChip(icon: "sparkles", text: "TODAY", isAccent: true)
+                    }
+                }
+            }
+            .scrollDisabled(true)
+            .allowsHitTesting(false)
+
             HStack(spacing: 8) {
                 Button {
                     onOpenDetail(hangout)
                 } label: {
                     Text("View details")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textInverse)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 38)
+                        .frame(height: 36)
                         .background(FriendZoneTheme.Colors.primary)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
@@ -706,12 +694,11 @@ private struct MapsOverlayView: View {
                 Button {
                     onReportHangout(hangout)
                 } label: {
-                    Text("Report")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.error)
-                        .padding(.horizontal, 12)
-                        .frame(height: 38)
-                        .background(FriendZoneTheme.Colors.error.opacity(0.08))
+                        .frame(width: 38, height: 36)
+                        .background(FriendZoneTheme.Colors.error.opacity(0.10))
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -722,17 +709,68 @@ private struct MapsOverlayView: View {
                 .disabled(isOpeningDetail)
             }
         }
-        .padding(12)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(11)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
         }
+        .friendZoneShadow(FriendZoneTheme.Shadows.md)
         .scaleEffect(isOpeningDetail ? 0.97 : 1.0)
-        .opacity(isOpeningDetail ? 0.22 : 1.0)
-        .blur(radius: isOpeningDetail ? 2.2 : 0)
+        .opacity(isOpeningDetail ? 0.34 : 1.0)
+        .blur(radius: isOpeningDetail ? 1.8 : 0)
         .animation(.easeInOut(duration: 0.16), value: isOpeningDetail)
+    }
+
+    private func previewThumbnail(_ hangout: HangoutItem) -> some View {
+        ZStack {
+            if
+                let data = hangout.coverImageData,
+                let image = UIImage(data: data)
+            {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 66, height: 66)
+                    .clipped()
+            } else {
+                LinearGradient(
+                    colors: [vibeColor(hangout.vibe), vibeColor(hangout.vibe).opacity(0.6)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .overlay {
+                    Text(vibeEmoji(hangout.vibe))
+                        .font(.system(size: 25))
+                }
+            }
+        }
+        .frame(width: 66, height: 66)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.7), lineWidth: 1)
+        }
+    }
+
+    private func mapMetaChip(icon: String, text: String, isAccent: Bool = false) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .bold))
+            Text(text)
+                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                .lineLimit(1)
+        }
+        .foregroundColor(isAccent ? .white : FriendZoneTheme.Colors.textSecondary)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            isAccent ? Color(hex: "#FF3B30") : Color.black.opacity(0.06)
+        )
+        .clipShape(Capsule())
     }
 
     private func timeLabel(_ value: Date) -> String {

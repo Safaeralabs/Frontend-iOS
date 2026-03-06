@@ -126,10 +126,14 @@ struct HangoutsAdvancedFiltersSheet: View {
     }
 }
 
-#Preview {
-    HangoutsAdvancedFiltersSheet(
-        filters: .constant(.default),
-        onClose: {},
-        onReset: {}
-    )
+#if DEBUG
+struct HangoutsAdvancedFiltersSheet_Previews: PreviewProvider {
+    static var previews: some View {
+        HangoutsAdvancedFiltersSheet(
+            filters: .constant(.default),
+            onClose: {},
+            onReset: {}
+        )
+    }
 }
+#endif

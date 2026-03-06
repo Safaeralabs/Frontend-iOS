@@ -61,9 +61,10 @@ struct FriendZoneTabBar: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                Text("FZ")
-                    .font(FriendZoneTheme.Typography.system(12, weight: .bold))
-                    .foregroundStyle(FriendZoneTheme.Colors.textInverse)
+                Image("FriendZoneLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
             }
             .frame(width: 42, height: 42)
             .scaleEffect(isSelected ? 1.06 : 1.0)
@@ -82,14 +83,18 @@ struct FriendZoneTabBar: View {
     }
 }
 
-#Preview {
-    ZStack {
-        FriendZoneTheme.Colors.background.ignoresSafeArea()
-        VStack {
-            Spacer()
-            FriendZoneTabBar(selectedTab: .constant(.hangouts))
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+#if DEBUG
+struct FriendZoneTabBar_Previews: PreviewProvider {
+    static var previews: some View {
+        ZStack {
+            FriendZoneTheme.Colors.background.ignoresSafeArea()
+            VStack {
+                Spacer()
+                FriendZoneTabBar(selectedTab: .constant(.hangouts))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
         }
     }
 }
+#endif

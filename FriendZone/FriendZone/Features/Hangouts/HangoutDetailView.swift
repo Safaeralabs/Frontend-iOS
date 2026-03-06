@@ -13,13 +13,14 @@ struct HangoutDetailView: View {
     @State private var isCancelledByHost = false
     @State private var isShowingMoreMenu = false
     @State private var isShowingReportSent = false
-    @State private var isShowingChatNotice = false
-
+    @State private var isShowingCancelHangoutConfirm = false
+    @State private var selectedPublicProfile: NativePublicProfileDescriptor?
+    @State private var selectedPage = 0
+    @GestureState private var pageDragOffset: CGFloat = 0
     @State private var displayedParticipants: [DetailPerson]
-    @State private var pendingJoinRequests: [DetailJoinRequest]
-    @State private var waitlistMembers: [DetailPerson]
-    @State private var currentRequestIndex = 0
-    @State private var requestTransitionDirection: RequestTransitionDirection = .pass
+    @State private var detailMessages: [DetailChatMessage]
+    @State private var composerText = ""
+    @FocusState private var composerFocused: Bool
 
     init(
         hangout: HangoutItem,
@@ -30,264 +31,369 @@ struct HangoutDetailView: View {
         self.hangout = hangout
         self.onRequestJoin = onRequestJoin
         self.onCancelRequest = onCancelRequest
-
-        let hostMode = hangout.hostName.lowercased() == "you"
-
         _localJoinStatus = State(initialValue: joinStatus)
         _isWaitlisted = State(initialValue: joinStatus == .requested && hangout.isFull)
         _displayedParticipants = State(initialValue: Self.seedParticipants(from: hangout))
-        _pendingJoinRequests = State(initialValue: Self.seedPendingRequests(from: hangout, enabled: hostMode))
-        _waitlistMembers = State(initialValue: Self.seedWaitlist(from: hangout, enabled: hostMode))
+        _detailMessages = State(initialValue: Self.seedActivityMessages(from: hangout))
     }
 
     var body: some View {
         GeometryReader { proxy in
+            let pageHeight = proxy.size.height
+            let topInset = proxy.safeAreaInsets.top
+
             ZStack {
-                Color(hex: "#F3F4FA")
-                    .ignoresSafeArea()
+                background
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 20) {
-                        headerSection
+                VStack(spacing: 0) {
+                    infoPage(topInset: topInset, pageHeight: pageHeight)
+                        .frame(width: proxy.size.width, height: pageHeight)
 
-                        if isEnded {
-                            endedBanner
-                        }
-
-                        locationSection
-
-                        if isHost && !isEnded {
-                            joinRequestsSection
-                        }
-
-                        participantsSection
-
-                        if isHost && !waitlistMembers.isEmpty {
-                            waitlistSection
-                        }
-
-                        if !canOpenChat && !isEnded && !isHost {
-                            lockedChatMessage
-                        }
-
-                        if currentRole == .pending && !isEnded && !isHost {
-                            pendingMessage
-                        } else if currentRole == .waitlisted && !isEnded && !isHost {
-                            waitlistedMessage
-                        }
-                    }
-                    .padding(.top, max(72, proxy.safeAreaInsets.top + 58))
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 180)
-                    .frame(maxWidth: 448)
-                    .frame(maxWidth: .infinity)
+                    activityPage(topInset: topInset, pageHeight: pageHeight)
+                        .frame(width: proxy.size.width, height: pageHeight)
                 }
+                .offset(y: -CGFloat(selectedPage) * pageHeight + pageDragOffset)
+                .animation(.interactiveSpring(response: 0.34, dampingFraction: 0.86), value: selectedPage)
+                .gesture(
+                    DragGesture(minimumDistance: 16)
+                        .updating($pageDragOffset) { value, state, _ in
+                            state = value.translation.height
+                        }
+                        .onEnded { value in
+                            let threshold = pageHeight * 0.12
+                            if value.translation.height < -threshold {
+                                selectedPage = min(1, selectedPage + 1)
+                            } else if value.translation.height > threshold {
+                                selectedPage = max(0, selectedPage - 1)
+                            }
+                        }
+                )
             }
             .overlay(alignment: .top) {
-                topNav(topInset: proxy.safeAreaInsets.top)
-            }
-            .overlay(alignment: .bottom) {
-                bottomFloatingLayer
+                topNav(topInset: topInset)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .confirmationDialog(
-            "Hangout actions",
-            isPresented: $isShowingMoreMenu,
-            titleVisibility: .visible
-        ) {
+        .confirmationDialog("Hangout actions", isPresented: $isShowingMoreMenu, titleVisibility: .visible) {
             Button("Report Hangout", role: .destructive) {
                 isShowingReportSent = true
             }
-            Button("Cancel", role: .cancel) {}
+            if isHost, !isEnded {
+                Button("Cancel Hangout", role: .destructive) {
+                    isShowingCancelHangoutConfirm = true
+                }
+            }
+            Button("Close", role: .cancel) {}
         }
         .alert("Report sent", isPresented: $isShowingReportSent) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Thanks. We will review this hangout.")
         }
-        .alert("Chat coming soon", isPresented: $isShowingChatNotice) {
-            Button("OK", role: .cancel) {}
+        .alert("Cancel this hangout?", isPresented: $isShowingCancelHangoutConfirm) {
+            Button("Keep", role: .cancel) {}
+            Button("Cancel Hangout", role: .destructive) {
+                isCancelledByHost = true
+            }
         } message: {
-            Text("Native group chat will be connected in a next step.")
+            Text("Participants will be notified that this hangout was cancelled.")
+        }
+        .sheet(item: $selectedPublicProfile) { profile in
+            NavigationStack {
+                NativePublicProfileHubView(
+                    profile: profile,
+                    onClose: { selectedPublicProfile = nil }
+                )
+            }
+            .background(FriendZoneTheme.Colors.background)
         }
     }
 
-    private var headerSection: some View {
+    private var background: some View {
+        LinearGradient(
+            colors: [
+                Color(hex: "#F5F4FB"),
+                Color(hex: "#FAFAFD"),
+                Color(hex: "#F2F3F8")
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+    }
+
+    private func infoPage(topInset: CGFloat, pageHeight: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            ticketCard
+                .padding(.top, topInset + 6)
+
+            peopleLocationCard
+                .padding(.top, 12)
+
+            if isEnded {
+                statusBanner(
+                    title: "This hangout ended",
+                    message: "The activity panel stays available for context, but the hangout is closed."
+                )
+                .padding(.top, 12)
+            } else if isCancelledByHost {
+                statusBanner(
+                    title: "Cancelled by host",
+                    message: "Participants can no longer join this hangout."
+                )
+                .padding(.top, 12)
+            }
+
+            Spacer(minLength: 0)
+
+            pageCue(
+                title: "Swipe up for activity",
+                subtitle: "Chat, people and location",
+                direction: .up
+            )
+            .padding(.bottom, 12)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: 430)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func activityPage(topInset: CGFloat, pageHeight: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            activityHeader
+                .padding(.top, topInset + 8)
+
+            Group {
+                if canOpenChat {
+                    activityChatCard
+                } else {
+                    activityLockedCard
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: min(420, pageHeight * 0.56), maxHeight: min(560, pageHeight * 0.68))
+
+            Spacer(minLength: 0)
+
+            primaryBottomAction
+                .padding(.bottom, 8)
+
+            pageCue(
+                title: "Swipe down for hangout info",
+                subtitle: "Back to the pass",
+                direction: .down
+            )
+            .padding(.bottom, 12)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: 430)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func topNav(topInset: CGFloat) -> some View {
+        HStack {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+                    .clipShape(Circle())
+                    .overlay {
+                        Circle().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                    }
+            }
+
+            Spacer()
+
+            Button {
+                isShowingMoreMenu = true
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+                    .clipShape(Circle())
+                    .overlay {
+                        Circle().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                    }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, topInset + 2)
+    }
+
+    private var ticketCard: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                detailTicketTopLabel
-                    .padding(.bottom, 10)
-
                 if let coverUIImage {
-                    coverUIImage
+                    Image(uiImage: coverUIImage)
                         .resizable()
                         .scaledToFill()
-                        .frame(height: 172)
+                        .frame(height: 170)
                         .frame(maxWidth: .infinity)
                         .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                                .stroke(Color.white.opacity(0.26), lineWidth: 1)
                         }
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 14)
                 }
 
-                Text(hangout.title)
-                    .font(FriendZoneTheme.Typography.system(28, weight: .bold))
-                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .padding(.bottom, 7)
-
-                Text(subtitleText)
-                    .font(FriendZoneTheme.Typography.system(13, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    .padding(.bottom, 10)
-
-                Text(hangout.description)
-                    .font(FriendZoneTheme.Typography.system(13, weight: .regular))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    .lineSpacing(1.2)
-                    .lineLimit(3)
-                    .padding(.bottom, 10)
-
-                Text("TBA")
-                    .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                .padding(.bottom, 10)
-
-                HStack(spacing: 4) {
-                    Image(systemName: isHost ? "crown.fill" : "scope")
-                        .font(.system(size: 11, weight: .bold))
-                    Text("Hosted by \(hangout.hostName)")
-                }
-                .font(FriendZoneTheme.Typography.system(12, weight: .semibold))
-                .foregroundColor(isHost ? detailAccentColor : FriendZoneTheme.Colors.textSecondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            .padding(16)
-
-            detailPerforationLine
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-
-            VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 12) {
-                    Text(detailCountdownText)
-                        .font(FriendZoneTheme.Typography.system(15, weight: .heavy))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(detailAccentColor.opacity(0.14))
-                        .clipShape(Capsule())
-                        .overlay {
-                            Capsule()
-                                .stroke(detailAccentColor.opacity(0.28), lineWidth: 1)
-                        }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(timeOnlyLabel(hangout.startAt))
-                            .font(FriendZoneTheme.Typography.system(11, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                        Text(shortDateLabel(hangout.startAt))
-                            .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(subtitleText.uppercased())
+                            .font(FriendZoneTheme.Typography.system(10, weight: .bold))
                             .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                            .tracking(0.8)
+
+                        Text(hangout.title)
+                            .font(FriendZoneTheme.Typography.system(24, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                            .lineLimit(3)
+
+                        Text(hangout.description)
+                            .font(FriendZoneTheme.Typography.system(12, weight: .regular))
+                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                            .lineSpacing(2)
+                            .lineLimit(4)
                     }
 
                     Spacer(minLength: 0)
 
-                    Text(detailSpotsText)
-                        .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                    VStack(alignment: .trailing, spacing: 8) {
+                        ticketAccentPill(detailCountdownText, tint: detailAccentColor)
+
+                        Text(timeOnlyLabel(hangout.startAt))
+                            .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                        Text(shortDateLabel(hangout.startAt))
+                            .font(FriendZoneTheme.Typography.system(9, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    ticketMetaPill(dateOnlyLabel(hangout.startAt).uppercased())
+                    ticketMetaPill(durationLabel)
+                    ticketMetaPill(audienceSummary.uppercased())
+                }
+                .padding(.top, 14)
+
+                HStack(spacing: 8) {
+                    ticketMetaPill(isLocationHidden ? "LOCATION TBA" : hangout.locationDisplay.uppercased())
+                    ticketMetaPill("LANG EN")
+                }
+                .padding(.top, 8)
+
+                hostStrip
+                    .padding(.top, 14)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+
+            detailPerforationLine
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("People")
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                        .tracking(0.7)
+
+                    Text("\(approvedParticipantsCount)/\(hangout.capacity)")
+                        .font(FriendZoneTheme.Typography.system(22, weight: .heavy))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text(spotsLabel)
+                        .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
                         .foregroundColor(detailSpotsColor)
                 }
 
-                detailTicketBarcode
-                    .frame(height: 24, alignment: .bottom)
+                Spacer(minLength: 0)
 
-                Text(detailTicketCode)
-                    .font(FriendZoneTheme.Typography.system(9, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    .tracking(0.7)
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text("Host")
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                        .tracking(0.7)
 
-                HStack(spacing: 8) {
-                    detailMetaPill("LANG EN")
-                    detailMetaPill("CAP \(approvedParticipantsCount)/\(hangout.capacity)")
-                    detailMetaPill("DUR \(detailDurationLabel)")
+                    Text(hangout.hostName)
+                        .font(FriendZoneTheme.Typography.system(16, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .lineLimit(1)
+
+                    Text(isLocationHidden ? "Location unlocks after acceptance" : hangout.locationDisplay)
+                        .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
                 }
-                .padding(.top, 2)
-
-                Text(audienceSummary.uppercased())
-                    .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    .tracking(0.6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 18)
         }
         .background(FriendZoneTheme.Colors.surface)
         .mask(detailTicketClipMask)
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(Color.black.opacity(0.18), lineWidth: 1)
                 .mask(detailTicketClipMask)
         }
-        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 6)
+        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+        .frame(maxWidth: 392)
     }
 
-    private var detailTicketTopLabel: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "ticket.fill")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(detailAccentColor)
+    private var hostStrip: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(detailAccentColor.opacity(0.16))
+                .frame(width: 30, height: 30)
+                .overlay {
+                    Text(String(hangout.hostName.prefix(1)).uppercased())
+                        .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                        .foregroundColor(detailAccentColor)
+                }
 
-            Text("HANGOUT PASS")
-                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                .tracking(0.8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isHost ? "You are hosting" : "Hosted by \(hangout.hostName)")
+                    .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text(isHost ? "Manage requests and activity from the next section." : "Community-led small group hangout.")
+                    .font(FriendZoneTheme.Typography.system(10, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            }
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(Color.black.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var detailPerforationLine: some View {
-        HStack(spacing: 4) {
-            ForEach(0 ..< 52, id: \.self) { _ in
-                Circle()
+        HStack(spacing: 6) {
+            ForEach(0 ..< 28, id: \.self) { _ in
+                Capsule()
                     .fill(FriendZoneTheme.Colors.borderSubtle.opacity(0.95))
-                    .frame(width: 2.3, height: 2.3)
+                    .frame(width: 6, height: 2)
             }
         }
-    }
-
-    private var detailTicketBarcode: some View {
-        HStack(alignment: .bottom, spacing: 0.8) {
-            ForEach(Array(detailBarcodeBars.enumerated()), id: \.offset) { _, bar in
-                Rectangle()
-                    .fill(Color.black.opacity(bar.opacity))
-                    .frame(width: bar.width, height: bar.height)
-            }
-        }
-        .frame(height: 24, alignment: .bottom)
-    }
-
-    private func detailMetaPill(_ text: String) -> some View {
-        Text(text)
-            .font(FriendZoneTheme.Typography.system(9, weight: .bold))
-            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            .padding(.horizontal, 7)
-            .frame(height: 22)
-            .background(Color.black.opacity(0.05))
-            .clipShape(Capsule())
     }
 
     private var detailTicketClipMask: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(Color.white)
             .overlay {
                 detailTicketPunchHoles
@@ -298,754 +404,443 @@ struct HangoutDetailView: View {
 
     private var detailTicketPunchHoles: some View {
         GeometryReader { proxy in
-            let sideRadius: CGFloat = 4.8
-            let centerRadius: CGFloat = 10
-            let centerX = proxy.size.width * 0.5
-            let topInset: CGFloat = 16
-            let bottomInset: CGFloat = 16
-            let count = 10
+            let sideRadius: CGFloat = 7
+            let centerRadius: CGFloat = 12
+            let topInset: CGFloat = 18
+            let bottomInset: CGFloat = 18
             let usableHeight = max(0, proxy.size.height - topInset - bottomInset)
-            let step = usableHeight / CGFloat(max(1, count - 1))
+            let step = usableHeight / 7
 
             ZStack {
-                ForEach(0 ..< count, id: \.self) { index in
+                ForEach(0 ..< 8, id: \.self) { index in
                     let y = topInset + CGFloat(index) * step
 
                     Circle()
-                        .fill(Color.black)
+                        .fill(FriendZoneTheme.Colors.background)
                         .frame(width: sideRadius * 2, height: sideRadius * 2)
                         .position(x: 0, y: y)
 
                     Circle()
-                        .fill(Color.black)
+                        .fill(FriendZoneTheme.Colors.background)
                         .frame(width: sideRadius * 2, height: sideRadius * 2)
                         .position(x: proxy.size.width, y: y)
                 }
 
                 Circle()
-                    .fill(Color.black)
+                    .fill(FriendZoneTheme.Colors.background)
                     .frame(width: centerRadius * 2, height: centerRadius * 2)
-                    .position(x: centerX, y: 0)
+                    .position(x: proxy.size.width * 0.5, y: 0)
 
                 Circle()
-                    .fill(Color.black)
+                    .fill(FriendZoneTheme.Colors.background)
                     .frame(width: centerRadius * 2, height: centerRadius * 2)
-                    .position(x: centerX, y: proxy.size.height)
+                    .position(x: proxy.size.width * 0.5, y: proxy.size.height)
             }
         }
     }
 
-    private var endedBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.error)
+    private func ticketAccentPill(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(FriendZoneTheme.Typography.system(12, weight: .heavy))
+            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(tint.opacity(0.14))
+            .clipShape(Capsule())
+            .overlay {
+                Capsule().stroke(tint.opacity(0.26), lineWidth: 1)
+            }
+    }
 
-            Text(isCancelledByHost ? "This hangout has been cancelled" : "This hangout has ended")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.error)
+    private func ticketMetaPill(_ title: String) -> some View {
+        Text(title)
+            .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
+            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(Color.black.opacity(0.035))
+            .clipShape(Capsule())
+    }
 
-            Spacer(minLength: 0)
+    private func statusBanner(title: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(13, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(message)
+                .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
         }
-        .padding(14)
-        .background(
-            LinearGradient(
-                colors: [Color.red.opacity(0.09), Color.red.opacity(0.05)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FriendZoneTheme.Colors.surface.opacity(0.94))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                .stroke(Color.red.opacity(0.25), lineWidth: 1)
-        }
-    }
-
-    private var infoGridSection: some View {
-        VStack(spacing: 12) {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                infoCard(title: "DATE", value: dateOnlyLabel(hangout.startAt), icon: "calendar")
-                infoCard(title: "TIME", value: timeOnlyLabel(hangout.startAt), icon: "clock")
-                infoCard(title: "CAPACITY", value: capacityLabel, icon: "person.2")
-                infoCard(title: "LANGUAGE", value: "EN", icon: "globe")
-            }
-
-            infoWideCard(title: "THE VIBE", value: hangout.vibe.title, icon: "sparkles")
-            infoWideCard(title: "AUDIENCE", value: audienceSummary, icon: "line.3.horizontal.decrease.circle")
-        }
-    }
-
-    private var locationSection: some View {
-        Group {
-            if isLocationHidden {
-                VStack(spacing: 8) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                        .frame(width: 34, height: 34)
-                        .background(Color.white)
-                        .clipShape(Circle())
-                        .overlay {
-                            Circle().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                        }
-
-                    Text("Location Hidden")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                    Text("Revealed after your request is approved")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 120)
-                .background(Color.white.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    Image(systemName: "mappin.and.ellipse")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.primary)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("LOCATION")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                            .tracking(1.2)
-
-                        Text(hangout.locationDisplay)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(16)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                }
-            }
-        }
-    }
-
-    private var hostSection: some View {
-        HStack(spacing: 12) {
-            ZStack(alignment: .bottomTrailing) {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 48, height: 48)
-                    .overlay {
-                        Text(String(hangout.hostName.prefix(1)).uppercased())
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                    }
-
-                Circle()
-                    .fill(FriendZoneTheme.Colors.success)
-                    .frame(width: 12, height: 12)
-                    .overlay {
-                        Circle().stroke(Color.white, lineWidth: 2)
-                    }
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(hangout.hostName)
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                    if isHost {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.primary)
-                    }
-                }
-
-                Text("\(max(1, hangout.id % 12 + 3)) hangouts hosted")
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            }
-
-            Spacer(minLength: 0)
-
-            Text("Profile")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.primary)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(FriendZoneTheme.Colors.primarySoft)
-                .clipShape(Capsule())
-        }
-        .padding(12)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
         }
     }
 
-    private var descriptionSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("ABOUT THIS PLAN")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                .tracking(1.2)
+    private var activityHeader: some View {
+        VStack(spacing: 4) {
+            Text("Hangout Activity")
+                .font(FriendZoneTheme.Typography.system(22, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
-            Text(hangout.description)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .regular))
+            Text(canOpenChat ? "Live chat, people and location" : "Activity unlocks once the host accepts you")
+                .font(FriendZoneTheme.Typography.system(12, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                .lineSpacing(2)
-                .lineLimit(3)
+                .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
-    private var joinRequestsSection: some View {
-        if let request = currentPendingRequest {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("JOIN REQUESTS (\(pendingJoinRequests.count))")
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    .tracking(1.2)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .center, spacing: 12) {
-                        participantAvatar(request.username)
-                            .onTapGesture {
-                                FriendZoneHaptics.selection()
-                            }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(request.username)
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                                .lineLimit(1)
-
-                            Text("@\(request.username.lowercased())")
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
-                                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        Text("PENDING")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                            .padding(.horizontal, 9)
-                            .frame(height: 24)
-                            .background(FriendZoneTheme.Colors.surfaceMuted)
-                            .clipShape(Capsule())
-                            .overlay {
-                                Capsule().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                            }
-                    }
-
-                    if let message = request.message {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("MESSAGE")
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                                .tracking(1.1)
-
-                            Text("\"\(message)\"")
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .regular))
-                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                                .lineLimit(2)
-                        }
-                        .padding(.top, 14)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 11)
-                        .background(FriendZoneTheme.Colors.surfaceMuted)
-                        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                        }
-                        .padding(.top, 14)
-                    }
-
-                    HStack {
-                        Text("\(currentRequestIndex + 1) of \(pendingJoinRequests.count)")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-
-                        Spacer(minLength: 0)
-
-                        HStack(spacing: 8) {
-                            Button {
-                                handleRejectCurrentRequest()
-                            } label: {
-                                Text("Pass")
-                                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
-                                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                                    .frame(minWidth: 94)
-                                    .frame(height: 38)
-                                    .background(Color.white)
-                                    .clipShape(Capsule())
-                                    .overlay {
-                                        Capsule().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                                    }
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                handleApproveCurrentRequest()
-                            } label: {
-                                Text("Welcome")
-                                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
-                                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                                    .frame(minWidth: 94)
-                                    .frame(height: 38)
-                                    .background(FriendZoneTheme.Colors.primary)
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.top, 14)
-                }
-                .id(request.id)
-                .transition(requestCardTransition)
-                .padding(16)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.xl, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.xl, style: .continuous)
-                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                }
-                .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
-            }
-        }
-    }
-
-    private var participantsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("PARTICIPANTS (\(displayedParticipants.count))")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                .tracking(1.2)
-
-            VStack(spacing: 6) {
-                ForEach(displayedParticipants) { person in
-                    HStack(spacing: 10) {
-                        participantAvatar(person.name)
-
-                        Text(person.name)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                            .lineLimit(1)
-
-                        Spacer(minLength: 0)
-
-                        if person.isHost {
-                            Text("HOST")
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                                .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                                .padding(.horizontal, 8)
-                                .frame(height: 20)
-                                .background(
-                                    LinearGradient(
-                                        colors: [FriendZoneTheme.Colors.warning, FriendZoneTheme.Colors.warning.opacity(0.75)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        } else if isHost && !isEnded {
-                            Button {
-                                removeParticipant(person)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(FriendZoneTheme.Colors.error)
-                                    .frame(width: 26, height: 26)
-                                    .background(Color.red.opacity(0.12))
-                                    .clipShape(Circle())
-                                    .overlay {
-                                        Circle().stroke(Color.red.opacity(0.32), lineWidth: 1)
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 52)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                            .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                    }
-                }
-            }
-        }
-    }
-
-    private var waitlistSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("WAITLIST (\(waitlistMembers.count))")
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    .tracking(1.2)
-
-                Text("Auto-promoted when spots open")
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-            }
-
-            VStack(spacing: 6) {
-                ForEach(waitlistMembers) { person in
-                    HStack(spacing: 10) {
-                        participantAvatar(person.name)
-
-                        Text(person.name)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                            .lineLimit(1)
-
-                        Spacer(minLength: 0)
-
-                        Text("WAITLIST")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.warning)
-                            .padding(.horizontal, 8)
-                            .frame(height: 20)
-                            .background(Color(hex: "#F59E0B").opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(Color(hex: "#F59E0B").opacity(0.30), lineWidth: 1)
-                            }
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 52)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                            .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                    }
-                }
-            }
-        }
-    }
-
-    private var lockedChatMessage: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 14, weight: .bold))
-            Text("Chat available after you're accepted")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-        }
-        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(FriendZoneTheme.Colors.primary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.primary.opacity(0.20), lineWidth: 1)
-        }
-    }
-
-    private var pendingMessage: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hourglass")
-                .font(.system(size: 14, weight: .bold))
-            Text("Your request is pending approval")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-        }
-        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: "#F59E0B").opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                .stroke(Color(hex: "#F59E0B").opacity(0.32), lineWidth: 1)
-        }
-    }
-
-    private var waitlistedMessage: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "list.bullet.rectangle.portrait")
-                .font(.system(size: 14, weight: .bold))
-            Text("You're on the waitlist. We'll notify you if a spot opens.")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-        }
-        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: "#F59E0B").opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                .stroke(Color(hex: "#F59E0B").opacity(0.25), lineWidth: 1)
-        }
-    }
-
-    private func topNav(topInset: CGFloat) -> some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(hex: "#F3F4FA"), Color(hex: "#F3F4FA").opacity(0.92), Color.clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 100 + topInset)
-            .allowsHitTesting(false)
-
+    private var activityChatCard: some View {
+        VStack(spacing: 0) {
             HStack {
-                navButton(icon: "chevron.left") {
-                    dismiss()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Chat")
+                        .font(FriendZoneTheme.Typography.system(15, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text("\(detailMessages.count) messages")
+                        .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                 }
 
                 Spacer(minLength: 0)
 
-                HStack(spacing: 8) {
-                    ShareLink(item: shareURL) {
-                        navButtonLabel(icon: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.plain)
-
-                    navButton(icon: "ellipsis") {
-                        isShowingMoreMenu = true
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, max(8, topInset + 2))
-            .frame(maxWidth: 448)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var bottomFloatingLayer: some View {
-        ZStack(alignment: .bottomTrailing) {
-            actionButton
-
-            if canOpenChat {
-                Button {
-                    isShowingChatNotice = true
-                } label: {
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                        .frame(width: 56, height: 56)
-                        .background(FriendZoneTheme.Colors.primary)
-                        .clipShape(Circle())
-                        .shadow(color: FriendZoneTheme.Colors.primary.opacity(0.35), radius: 10, x: 0, y: 5)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 20)
-                .padding(.bottom, 106)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var actionButton: some View {
-        if isEnded {
-            EmptyView()
-        } else {
-            switch currentRole {
-            case .guest:
-                Button {
-                    onRequestJoin()
-                    localJoinStatus = .requested
-                    isWaitlisted = isCapacityFullForRequest
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(hangout.sourceType == .offer ? "Join Offer" : "Join Circle")
-                        Image(systemName: "arrow.right")
-                    }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(FriendZoneTheme.Colors.primary)
+                Text(currentRole.title)
+                    .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                    .foregroundColor(detailAccentColor)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(detailAccentColor.opacity(0.12))
                     .clipShape(Capsule())
-                    .shadow(color: FriendZoneTheme.Colors.primary.opacity(0.35), radius: 12, x: 0, y: 6)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 106)
-                .frame(maxWidth: 448)
-                .frame(maxWidth: .infinity)
-            case .pending:
-                HStack(spacing: 8) {
-                    Image(systemName: "hourglass")
-                    Text("Request Sent")
-                }
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(FriendZoneTheme.Colors.textTertiary)
-                .clipShape(Capsule())
-                .padding(.horizontal, 24)
-                .padding(.bottom, 106)
-                .frame(maxWidth: 448)
-                .frame(maxWidth: .infinity)
-            case .waitlisted:
-                HStack(spacing: 8) {
-                    Image(systemName: "list.bullet.rectangle.portrait")
-                    Text("On Waitlist")
-                }
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(FriendZoneTheme.Colors.textTertiary)
-                .clipShape(Capsule())
-                .padding(.horizontal, 24)
-                .padding(.bottom, 106)
-                .frame(maxWidth: 448)
-                .frame(maxWidth: .infinity)
-            case .participant:
-                Button {
-                    onCancelRequest()
-                    localJoinStatus = .none
-                    isWaitlisted = false
-                } label: {
-                    Text("Leave Hangout")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.error)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.white)
-                        .clipShape(Capsule())
-                        .overlay {
-                            Capsule().stroke(FriendZoneTheme.Colors.error.opacity(0.35), lineWidth: 1.6)
-                        }
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 106)
-                .frame(maxWidth: 448)
-                .frame(maxWidth: .infinity)
-            case .host:
-                Button {
-                    isCancelledByHost = true
-                } label: {
-                    Text("Cancel Hangout")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.error)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.white)
-                        .clipShape(Capsule())
-                        .overlay {
-                            Capsule().stroke(FriendZoneTheme.Colors.error.opacity(0.35), lineWidth: 1.6)
-                        }
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 106)
-                .frame(maxWidth: 448)
-                .frame(maxWidth: .infinity)
             }
-        }
-    }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
-    private func navButton(icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            navButtonLabel(icon: icon)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func navButtonLabel(icon: String) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 14, weight: .bold))
-            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-            .frame(width: 40, height: 40)
-            .background(Color.white)
-            .clipShape(Circle())
-            .overlay {
-                Circle().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 10) {
+                    ForEach(detailMessages) { message in
+                        activityMessageBubble(message)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
             }
-    }
 
-    private func infoCard(title: String, value: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.primary)
+            Divider()
+                .overlay(FriendZoneTheme.Colors.borderSubtle)
 
-            Text(title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                .tracking(1.1)
-
-            Text(value)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.primary.opacity(0.20), lineWidth: 1)
-        }
-    }
-
-    private func infoWideCard(title: String, value: String, icon: String) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title)
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    .tracking(1.1)
-
-                Text(value)
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Message the group", text: $composerText, axis: .vertical)
+                    .lineLimit(1 ... 3)
+                    .font(FriendZoneTheme.Typography.system(13, weight: .medium))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                    .focused($composerFocused)
+
+                Button(action: sendActivityMessage) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 34, height: 34)
+                        .background(detailAccentColor)
+                        .clipShape(Circle())
+                }
+                .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color.white.opacity(0.65))
+        }
+        .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
+    }
+
+    private func activityMessageBubble(_ message: DetailChatMessage) -> some View {
+        let mine = message.isMine
+
+        return HStack(alignment: .bottom, spacing: 8) {
+            if mine { Spacer(minLength: 42) }
+
+            if !mine {
+                participantAvatar(for: message.initials, color: message.tint, size: 30)
             }
 
+            VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+                if !mine {
+                    Text(message.author)
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                }
+
+                Text(message.text)
+                    .font(FriendZoneTheme.Typography.system(13, weight: .medium))
+                    .foregroundColor(mine ? .white : FriendZoneTheme.Colors.textPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(mine ? detailAccentColor : Color.black.opacity(0.045))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                Text(message.time)
+                    .font(FriendZoneTheme.Typography.system(9, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            }
+
+            if !mine { Spacer(minLength: 20) }
+            if mine {
+                participantAvatar(for: "Y", color: detailAccentColor, size: 30)
+            }
+        }
+    }
+
+    private var activityLockedCard: some View {
+        VStack(spacing: 16) {
             Spacer(minLength: 0)
 
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.primary)
+            Image(systemName: isWaitlisted ? "clock.badge.exclamationmark.fill" : "person.badge.key.fill")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundColor(detailAccentColor)
+
+            VStack(spacing: 6) {
+                Text(isWaitlisted ? "You are on the waitlist" : "Activity is locked")
+                    .font(FriendZoneTheme.Typography.system(19, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text(isWaitlisted ? "The host will notify you if a place opens up." : "Once accepted, this section reveals the group chat and the final location.")
+                    .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 18)
+            }
+
+            ticketMetaPill(localJoinStatus == .requested ? localJoinStatus.chipTitle : "REQUEST TO UNLOCK")
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.primary.opacity(0.20), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
         }
     }
 
-    private func participantAvatar(_ name: String) -> some View {
-        Text(String(name.prefix(1)).uppercased())
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-            .foregroundColor(FriendZoneTheme.Colors.textInverse)
-            .frame(width: 36, height: 36)
+    private var peopleLocationCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("People & Location")
+                    .font(FriendZoneTheme.Typography.system(15, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Spacer(minLength: 0)
+
+                Text("\(displayedParticipants.count) total")
+                    .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(displayedParticipants) { person in
+                        Button {
+                            openPublicProfile(for: person)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 10) {
+                                    participantAvatar(for: person.initials, color: person.tint, size: 44)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(person.firstName)
+                                            .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                                            .lineLimit(1)
+
+                                        Text(person.role)
+                                            .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
+                                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                                            .lineLimit(1)
+                                    }
+
+                                    Spacer(minLength: 0)
+                                }
+
+                                Text(person.isConfirmed ? "Confirmed" : "Pending")
+                                    .font(FriendZoneTheme.Typography.system(9, weight: .bold))
+                                    .foregroundColor(person.isConfirmed ? person.tint : FriendZoneTheme.Colors.textTertiary)
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 24)
+                                    .background(
+                                        (person.isConfirmed ? person.tint.opacity(0.12) : Color.black.opacity(0.05))
+                                    )
+                                    .clipShape(Capsule())
+                            }
+                            .padding(12)
+                            .frame(width: 148, alignment: .leading)
+                            .background(FriendZoneTheme.Colors.surfaceElevated.opacity(0.92))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
+            Divider()
+                .overlay(FriendZoneTheme.Colors.borderSubtle)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Location")
+                    .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
+                Text(locationStatusTitle)
+                    .font(FriendZoneTheme.Typography.system(14, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text(locationStatusSubtitle)
+                    .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    .lineSpacing(1.8)
+            }
+        }
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+    }
+
+    private var primaryBottomAction: some View {
+        Group {
+            if isHost {
+                bottomActionButton(
+                    title: isEnded || isCancelledByHost ? "Hangout Closed" : "Cancel Hangout",
+                    subtitle: isEnded || isCancelledByHost ? "This activity is no longer active." : "Close this hangout for everyone",
+                    tint: isEnded || isCancelledByHost ? FriendZoneTheme.Colors.textTertiary : FriendZoneTheme.Colors.error,
+                    isEnabled: !(isEnded || isCancelledByHost)
+                ) {
+                    isShowingCancelHangoutConfirm = true
+                }
+            } else if localJoinStatus == .joined {
+                bottomActionButton(
+                    title: "Leave Hangout",
+                    subtitle: "You can re-request later if it stays open",
+                    tint: FriendZoneTheme.Colors.error,
+                    isEnabled: !isEnded
+                ) {
+                    localJoinStatus = .none
+                }
+            } else if localJoinStatus == .requested {
+                bottomActionButton(
+                    title: isWaitlisted ? "Leave Waitlist" : "Cancel Request",
+                    subtitle: isWaitlisted ? "You will stop waiting for a free place" : "Withdraw your join request",
+                    tint: FriendZoneTheme.Colors.textPrimary,
+                    isEnabled: !isEnded
+                ) {
+                    isWaitlisted = false
+                    localJoinStatus = .none
+                    onCancelRequest()
+                }
+            } else {
+                bottomActionButton(
+                    title: hangout.isFull ? "Join Waitlist" : "Request to Join",
+                    subtitle: hangout.isFull ? "You will be notified if a place opens" : "The host will review your request",
+                    tint: detailAccentColor,
+                    isEnabled: !(isEnded || isCancelledByHost)
+                ) {
+                    localJoinStatus = .requested
+                    isWaitlisted = hangout.isFull
+                    onRequestJoin()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func bottomActionButton(
+        title: String,
+        subtitle: String,
+        tint: Color,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(FriendZoneTheme.Typography.system(15, weight: .bold))
+                Text(subtitle)
+                    .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundColor(isEnabled ? .white : FriendZoneTheme.Colors.textInverse.opacity(0.8))
+            .frame(maxWidth: .infinity)
+            .frame(height: 62)
             .background(
                 LinearGradient(
-                    colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
+                    colors: isEnabled ? [tint, tint.opacity(0.82)] : [Color.gray.opacity(0.45), Color.gray.opacity(0.35)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .disabled(!isEnabled)
+    }
+
+    private func pageCue(title: String, subtitle: String, direction: PageCueDirection) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: direction == .up ? "arrow.up" : "arrow.down")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
+            VStack(spacing: 2) {
+                Text(title)
+                    .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+
+                Text(subtitle)
+                    .font(FriendZoneTheme.Typography.system(10, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(FriendZoneTheme.Colors.surface.opacity(0.88))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private func participantAvatar(for initials: String, color: Color, size: CGFloat) -> some View {
+        Text(initials)
+            .font(FriendZoneTheme.Typography.system(size * 0.34, weight: .bold))
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
+            .background(
+                LinearGradient(
+                    colors: [color, color.opacity(0.75)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -1053,76 +848,38 @@ struct HangoutDetailView: View {
             .clipShape(Circle())
     }
 
-    private func handleApproveCurrentRequest() {
-        guard let request = currentPendingRequest else { return }
-        requestTransitionDirection = .welcome
-        removeCurrentPendingRequest(animated: true)
-
-        let approvedPerson = DetailPerson(id: request.userID, name: request.username, isHost: false)
-
-        if approvedParticipantsCount < hangout.capacity {
-            displayedParticipants.append(approvedPerson)
-        } else {
-            waitlistMembers.append(approvedPerson)
-        }
-    }
-
-    private func handleRejectCurrentRequest() {
-        requestTransitionDirection = .pass
-        removeCurrentPendingRequest(animated: true)
-    }
-
-    private func removeCurrentPendingRequest(animated: Bool) {
-        guard !pendingJoinRequests.isEmpty else { return }
-        let mutate = {
-            pendingJoinRequests.remove(at: currentRequestIndex)
-            if pendingJoinRequests.isEmpty {
-                currentRequestIndex = 0
-            } else {
-                currentRequestIndex = min(currentRequestIndex, pendingJoinRequests.count - 1)
-            }
-        }
-
-        if animated {
-            withAnimation(FriendZoneTheme.Motion.easeOutExpo) {
-                mutate()
-            }
-        } else {
-            mutate()
-        }
-    }
-
-    private func removeParticipant(_ person: DetailPerson) {
-        guard !person.isHost else { return }
-        guard let index = displayedParticipants.firstIndex(where: { $0.id == person.id }) else { return }
-
-        displayedParticipants.remove(at: index)
-
-        if !waitlistMembers.isEmpty, approvedParticipantsCount < hangout.capacity {
-            let promoted = waitlistMembers.removeFirst()
-            displayedParticipants.append(DetailPerson(id: promoted.id, name: promoted.name, isHost: false))
-        }
+    private func sendActivityMessage() {
+        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        detailMessages.append(
+            DetailChatMessage(
+                author: "You",
+                initials: "Y",
+                text: trimmed,
+                time: "now",
+                tint: detailAccentColor,
+                isMine: true
+            )
+        )
+        composerText = ""
+        composerFocused = false
     }
 
     private var subtitleText: String {
-        if isHost {
-            return "You are managing this hangout"
-        }
-        if hangout.sourceType == .offer {
-            return "Venue offer ticket"
-        }
-        if hangout.sourceType == .event {
+        switch hangout.sourceType {
+        case .hangout:
+            return "Community hangout"
+        case .offer:
+            return "Venue-based hangout"
+        case .event:
             return "Event-based hangout"
         }
-        return "Community hangout ticket"
     }
 
     private var audienceSummary: String {
-        switch hangout.sourceType {
-        case .hangout: return "Open to everyone"
-        case .event: return "Event community"
-        case .offer: return "Venue community"
-        }
+        if hangout.isMicro { return "MICRO" }
+        if hangout.isLive { return "LIVE" }
+        return "OPEN GROUP"
     }
 
     private var isHost: Bool {
@@ -1130,15 +887,15 @@ struct HangoutDetailView: View {
     }
 
     private var isEnded: Bool {
-        isCancelledByHost || hangout.endAt <= Date()
+        hangout.endAt < Date()
     }
 
     private var isLocationHidden: Bool {
-        !isHost && localJoinStatus != .joined
+        !(isHost || localJoinStatus == .joined)
     }
 
     private var canOpenChat: Bool {
-        !isEnded && (currentRole == .participant || currentRole == .host)
+        isHost || localJoinStatus == .joined
     }
 
     private var currentRole: DetailRole {
@@ -1151,238 +908,171 @@ struct HangoutDetailView: View {
     }
 
     private var approvedParticipantsCount: Int {
-        displayedParticipants.filter { !$0.isHost }.count
-    }
-
-    private var capacityLabel: String {
-        let left = max(0, hangout.capacity - approvedParticipantsCount)
-        if left == 0 {
-            return "\(approvedParticipantsCount) / \(hangout.capacity) (Full)"
-        }
-        return "\(approvedParticipantsCount) / \(hangout.capacity) (\(left) left)"
-    }
-
-    private var isCapacityFullForRequest: Bool {
-        approvedParticipantsCount >= hangout.capacity
-    }
-
-    private var currentPendingRequest: DetailJoinRequest? {
-        guard !pendingJoinRequests.isEmpty else { return nil }
-        guard currentRequestIndex < pendingJoinRequests.count else { return nil }
-        return pendingJoinRequests[currentRequestIndex]
-    }
-
-    private var shareURL: URL {
-        URL(string: "https://friendzone.app/hangout/\(hangout.id)")!
-    }
-
-    private var requestCardTransition: AnyTransition {
-        switch requestTransitionDirection {
-        case .pass:
-            return .asymmetric(
-                insertion: .move(edge: .trailing).combined(with: .opacity),
-                removal: .move(edge: .leading).combined(with: .opacity)
-            )
-        case .welcome:
-            return .asymmetric(
-                insertion: .move(edge: .leading).combined(with: .opacity),
-                removal: .move(edge: .trailing).combined(with: .opacity)
-            )
-        }
-    }
-
-    private func dateOnlyLabel(_ value: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: value)
-    }
-
-    private func timeOnlyLabel(_ value: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: value)
-    }
-
-    private func shortDateLabel(_ value: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE d MMM"
-        return formatter.string(from: value).uppercased()
-    }
-
-    private func timeRemainingText(from now: Date, to date: Date) -> String? {
-        let diff = Int(date.timeIntervalSince(now))
-        if diff <= 0 { return nil }
-        let minutes = diff / 60
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours)h" }
-        return "\(hours / 24)d"
+        max(hangout.approvedCount, displayedParticipants.filter(\.isConfirmed).count)
     }
 
     private var detailCountdownText: String {
         timeRemainingText(from: Date(), to: hangout.startAt) ?? "SOON"
     }
 
-    private var detailSpotsText: String {
-        let left = max(0, hangout.capacity - approvedParticipantsCount)
-        return left == 0 ? "Full" : "\(left) Left"
+    private var spotsLabel: String {
+        hangout.isFull ? "Full" : "\(hangout.spotsLeft) spots left"
     }
 
     private var detailSpotsColor: Color {
-        detailSpotsText == "Full" ? FriendZoneTheme.Colors.error : detailAccentColor
+        hangout.isFull ? FriendZoneTheme.Colors.error : detailAccentColor
     }
 
-    private var detailTicketCode: String {
-        let components = Calendar.current.dateComponents([.day, .month, .year], from: hangout.startAt)
-        let day = String(format: "%02d", components.day ?? 0)
-        let month = String(format: "%02d", components.month ?? 0)
-        let year = String(components.year ?? 0)
-        return "\(cityCode)-\(day)-\(month)-\(hangout.id)-\(year)"
-    }
-
-    private var detailDurationLabel: String {
-        let hours = max(1, Int(round(hangout.endAt.timeIntervalSince(hangout.startAt) / 3600)))
-        return "\(hours)h"
-    }
-
-    private var detailBarcodeBars: [(width: CGFloat, height: CGFloat, opacity: CGFloat)] {
-        let base = "\(detailTicketCode)|\(hangout.startAt.timeIntervalSince1970)|\(hangout.hostName)"
-        var result: [(width: CGFloat, height: CGFloat, opacity: CGFloat)] = []
-        let widths: [CGFloat] = [0.8, 1.2, 1.6]
-
-        result.append((1.8, 24, 0.9))
-        result.append((0.8, 18, 0.88))
-        result.append((1.8, 24, 0.9))
-
-        for (index, byte) in base.utf8.prefix(28).enumerated() {
-            let value = Int(byte)
-            let width = widths[value % widths.count]
-            let height: CGFloat
-            switch value % 5 {
-            case 0: height = 24
-            case 1: height = 22
-            case 2: height = 20
-            case 3: height = 23
-            default: height = 21
-            }
-            let opacity: CGFloat = index.isMultiple(of: 7) ? 0.95 : 0.88
-            result.append((width, height, opacity))
-
-            if index == 13 {
-                result.append((1.8, 24, 0.9))
-                result.append((0.8, 18, 0.88))
-                result.append((1.8, 24, 0.9))
-            }
+    private var durationLabel: String {
+        let minutes = max(30, Int(hangout.endAt.timeIntervalSince(hangout.startAt) / 60))
+        if minutes % 60 == 0 {
+            return "\(minutes / 60)H"
         }
-
-        result.append((1.8, 24, 0.9))
-        result.append((0.8, 18, 0.88))
-        result.append((1.8, 24, 0.9))
-
-        while result.count < 40 {
-            result.append((1.0, 20, 0.85))
-        }
-        return result
-    }
-
-    private var cityCode: String {
-        let normalized = hangout.cityName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let knownCodes: [String: String] = [
-            "munich": "MUC",
-            "munchen": "MUC",
-            "münchen": "MUC",
-            "berlin": "BER",
-            "madrid": "MAD",
-            "barcelona": "BCN",
-            "paris": "PAR",
-            "london": "LON",
-            "lisbon": "LIS",
-            "rome": "ROM",
-            "amsterdam": "AMS",
-            "new york": "NYC",
-            "los angeles": "LAX",
-            "miami": "MIA"
-        ]
-        if let code = knownCodes[normalized] {
-            return code
-        }
-        let compact = normalized.replacingOccurrences(of: " ", with: "")
-        if compact.isEmpty {
-            return "CITY"
-        }
-        return String(compact.prefix(3)).uppercased()
+        return "\(minutes / 60)H \(minutes % 60)M"
     }
 
     private var detailAccentColor: Color {
-        switch hangout.vibe {
-        case .chill: return Color(hex: "#667EEA")
-        case .drinks: return Color(hex: "#F59E0B")
-        case .deepTalk: return Color(hex: "#8B5CF6")
-        case .activity: return Color(hex: "#10B981")
-        case .foodie: return Color(hex: "#EF4444")
-        case .sporty: return Color(hex: "#0EA5E9")
+        switch hangout.sourceType {
+        case .hangout:
+            return FriendZoneTheme.Colors.primary
+        case .offer:
+            return Color(hex: "#F18B4C")
+        case .event:
+            return Color(hex: "#FF4D6D")
         }
     }
 
-    private var coverUIImage: Image? {
-        guard let data = hangout.coverImageData, let uiImage = UIImage(data: data) else {
-            return nil
+    private var coverUIImage: UIImage? {
+        guard let data = hangout.coverImageData else { return nil }
+        return UIImage(data: data)
+    }
+
+    private var locationStatusTitle: String {
+        if isLocationHidden {
+            return "Exact location hidden"
         }
-        return Image(uiImage: uiImage)
+        return hangout.locationDisplay
+    }
+
+    private var locationStatusSubtitle: String {
+        if isLocationHidden {
+            return "The host shares the final meeting point once your request is accepted."
+        }
+        return "\(hangout.cityName) · Meet there around \(timeOnlyLabel(hangout.startAt))"
+    }
+
+    private func canOpenPublicProfile(_ person: DetailPerson) -> Bool {
+        person.firstName.lowercased() != "you"
+    }
+
+    private func openPublicProfile(for person: DetailPerson) {
+        guard canOpenPublicProfile(person) else { return }
+        selectedPublicProfile = NativePublicProfileDescriptor(
+            id: person.id,
+            displayName: person.displayName,
+            roleLabel: person.role,
+            city: hangout.cityName,
+            bio: person.role == "Host" ? "Creates intimate social plans around \(hangout.cityName)." : "Usually joins small curated plans, dinners and micro-events.",
+            accentHex: person.hexColor
+        )
+    }
+
+    private func dateOnlyLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.dateFormat = "EEE, d MMM"
+        return formatter.string(from: date)
+    }
+
+    private func timeOnlyLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func shortDateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: date).uppercased()
+    }
+
+    private func timeRemainingText(from now: Date, to target: Date) -> String? {
+        let interval = target.timeIntervalSince(now)
+        if interval <= 0 { return nil }
+
+        let hours = Int(interval / 3600)
+        let minutes = Int(interval.truncatingRemainder(dividingBy: 3600) / 60)
+
+        if hours > 0 {
+            return "\(hours)h"
+        }
+        return "\(max(1, minutes))m"
     }
 
     private static func seedParticipants(from hangout: HangoutItem) -> [DetailPerson] {
-        let host = DetailPerson(id: hangout.id * 1000, name: hangout.hostName, isHost: true)
+        var items: [DetailPerson] = []
+        let baseColors = ["#5C6BFF", "#FF5E7E", "#22B8A2", "#F18B4C", "#8A5DFF", "#3C91E6"]
 
-        let guests = hangout.participantNames
-            .filter { !$0.isEmpty && $0.caseInsensitiveCompare(hangout.hostName) != .orderedSame }
-            .enumerated()
-            .map { offset, name in
-                DetailPerson(id: hangout.id * 1000 + offset + 1, name: name, isHost: false)
-            }
+        items.append(
+            DetailPerson(
+                id: "host-\(hangout.id)",
+                displayName: hangout.hostName,
+                role: "Host",
+                tint: Color(hex: "#5C6BFF"),
+                hexColor: "#5C6BFF",
+                isConfirmed: true
+            )
+        )
 
-        return [host] + guests
-    }
-
-    private static func seedPendingRequests(from hangout: HangoutItem, enabled: Bool) -> [DetailJoinRequest] {
-        guard enabled else { return [] }
-
-        let pool: [(String, String)] = [
-            ("Milo", "I'd love to join for good vibes and easy conversation."),
-            ("Aisha", "Can I join? I'm nearby and free now."),
-            ("Rene", "First time here, this looks exactly my vibe."),
-            ("Cam", "Down to join if there is still a spot left.")
-        ]
-
-        let count = min(3, max(1, hangout.spotsLeft + (hangout.isFull ? 2 : 0)))
-        let start = hangout.id % pool.count
-
-        return (0 ..< count).map { index in
-            let item = pool[(start + index) % pool.count]
-            return DetailJoinRequest(
-                id: hangout.id * 10 + index,
-                userID: hangout.id * 100 + index,
-                username: item.0,
-                message: item.1
+        for (index, name) in hangout.participantNames.enumerated() {
+            items.append(
+                DetailPerson(
+                    id: "person-\(hangout.id)-\(index)",
+                    displayName: name,
+                    role: "Member",
+                    tint: Color(hex: baseColors[index % baseColors.count]),
+                    hexColor: baseColors[index % baseColors.count],
+                    isConfirmed: index < hangout.approvedCount
+                )
             )
         }
-    }
 
-    private static func seedWaitlist(from hangout: HangoutItem, enabled: Bool) -> [DetailPerson] {
-        guard enabled else { return [] }
-
-        let pool = ["Niko", "Clara", "Yara", "Theo", "Mina"]
-        let baseCount = hangout.isFull ? 2 : 1
-        let count = min(baseCount, pool.count)
-        let start = (hangout.id + 2) % pool.count
-
-        return (0 ..< count).map { index in
-            let name = pool[(start + index) % pool.count]
-            return DetailPerson(id: hangout.id * 200 + index, name: name, isHost: false)
+        if items.count < 6 {
+            let extras = ["Sofia", "Daniel", "Mara", "Luca"]
+            for (index, name) in extras.prefix(6 - items.count).enumerated() {
+                let color = baseColors[(index + items.count) % baseColors.count]
+                items.append(
+                    DetailPerson(
+                        id: "extra-\(hangout.id)-\(index)",
+                        displayName: name,
+                        role: "Member",
+                        tint: Color(hex: color),
+                        hexColor: color,
+                        isConfirmed: true
+                    )
+                )
+            }
         }
+
+        return items
     }
+
+    private static func seedActivityMessages(from hangout: HangoutItem) -> [DetailChatMessage] {
+        [
+            DetailChatMessage(author: hangout.hostName, initials: String(hangout.hostName.prefix(1)).uppercased(), text: "See you all at \(hangout.startAt.formatted(date: .omitted, time: .shortened)).", time: "2m", tint: Color(hex: "#5C6BFF"), isMine: false),
+            DetailChatMessage(author: "Mara", initials: "M", text: "I can arrive a bit earlier if needed.", time: "2m", tint: Color(hex: "#FF5E7E"), isMine: false),
+            DetailChatMessage(author: "Luca", initials: "L", text: "Perfect. I will head there after work.", time: "1m", tint: Color(hex: "#22B8A2"), isMine: false),
+            DetailChatMessage(author: "You", initials: "Y", text: "Great, I am in.", time: "1m", tint: Color(hex: "#5C6BFF"), isMine: true),
+            DetailChatMessage(author: hangout.hostName, initials: String(hangout.hostName.prefix(1)).uppercased(), text: "Final spot details are in the location card below.", time: "now", tint: Color(hex: "#5C6BFF"), isMine: false)
+        ]
+    }
+}
+
+private enum PageCueDirection {
+    case up
+    case down
 }
 
 private enum DetailRole {
@@ -1391,33 +1081,138 @@ private enum DetailRole {
     case waitlisted
     case participant
     case host
-}
 
-private enum RequestTransitionDirection {
-    case pass
-    case welcome
+    var title: String {
+        switch self {
+        case .guest: return "Guest"
+        case .pending: return "Pending"
+        case .waitlisted: return "Waitlist"
+        case .participant: return "Joined"
+        case .host: return "Host"
+        }
+    }
 }
 
 private struct DetailPerson: Identifiable, Equatable {
-    let id: Int
-    let name: String
-    let isHost: Bool
+    let id: String
+    let displayName: String
+    let role: String
+    let tint: Color
+    let hexColor: String
+    let isConfirmed: Bool
+
+    var firstName: String {
+        displayName.split(separator: " ").first.map(String.init) ?? displayName
+    }
+
+    var initials: String {
+        let parts = displayName.split(separator: " ")
+        let value = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return value.isEmpty ? "?" : value.uppercased()
+    }
 }
 
-private struct DetailJoinRequest: Identifiable {
-    let id: Int
-    let userID: Int
-    let username: String
-    let message: String?
+private struct DetailChatMessage: Identifiable {
+    let id = UUID()
+    let author: String
+    let initials: String
+    let text: String
+    let time: String
+    let tint: Color
+    let isMine: Bool
 }
 
-#Preview {
-    NavigationStack {
-        HangoutDetailView(
-            hangout: HangoutsMockData.sample().first!,
-            joinStatus: .none,
-            onRequestJoin: {},
-            onCancelRequest: {}
-        )
+private struct NativePublicProfileDescriptor: Identifiable {
+    let id: String
+    let displayName: String
+    let roleLabel: String
+    let city: String
+    let bio: String
+    let accentHex: String
+}
+
+private struct NativePublicProfileHubView: View {
+    let profile: NativePublicProfileDescriptor
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack {
+            FriendZoneTheme.Colors.background.ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                HStack {
+                    Spacer()
+                    Button("Done") {
+                        onClose()
+                    }
+                    .font(FriendZoneTheme.Typography.system(15, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.primary)
+                }
+
+                Circle()
+                    .fill(Color(hex: profile.accentHex).opacity(0.16))
+                    .frame(width: 94, height: 94)
+                    .overlay {
+                        Text(String(profile.displayName.prefix(1)).uppercased())
+                            .font(FriendZoneTheme.Typography.system(34, weight: .heavy))
+                            .foregroundColor(Color(hex: profile.accentHex))
+                    }
+
+                VStack(spacing: 6) {
+                    Text(profile.displayName)
+                        .font(FriendZoneTheme.Typography.system(28, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text("\(profile.roleLabel) · \(profile.city)")
+                        .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+
+                Text(profile.bio)
+                    .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 18)
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+struct HangoutDetailView_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationStack {
+            HangoutDetailView(
+                hangout: HangoutItem(
+                    id: 301,
+                    sourceType: .hangout,
+                    title: "Sunset rooftop meetup",
+                    description: "Easygoing evening with music, natural wine and a small curated crowd.",
+                    vibe: .chill,
+                    cityName: "Berlin",
+                    locationName: "Rooftop bar",
+                    hostName: "Nina",
+                    startAt: Date().addingTimeInterval(60 * 60 * 5),
+                    endAt: Date().addingTimeInterval(60 * 60 * 7),
+                    capacity: 8,
+                    approvedCount: 5,
+                    isLive: false,
+                    isMicro: true,
+                    isJoined: true,
+                    participantNames: ["Sofia", "Luca", "Mara", "Daniel"],
+                    coverImageData: nil,
+                    coverSeed: 0,
+                    distanceKm: 1.2,
+                    priceTier: .budget
+                ),
+                joinStatus: .joined,
+                onRequestJoin: {},
+                onCancelRequest: {}
+            )
+        }
     }
 }

@@ -5,7 +5,6 @@ import Combine
 final class AmbitionsViewModel: ObservableObject {
     @Published private(set) var ambitions: [Ambition] = []
     @Published private(set) var matches: [AmbitionMatch] = []
-    @Published private(set) var patterns: [RecurringAvailability] = []
 
     @Published private(set) var isLoading = false
     @Published private(set) var activeMatchActions: [Int: AmbitionMatchAction] = [:]
@@ -44,19 +43,6 @@ final class AmbitionsViewModel: ObservableObject {
         }
     }
 
-    func count(for section: AmbitionsSection) -> Int {
-        switch section {
-        case .ambition:
-            return ambitions.count
-        case .matches:
-            return formingMatches.count
-        case .hangouts:
-            return hangoutMatches.count
-        case .weekly:
-            return patterns.count
-        }
-    }
-
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
         await refresh()
@@ -70,12 +56,10 @@ final class AmbitionsViewModel: ObservableObject {
             async let ambitionsTask = service.listAmbitions(status: "active")
             async let formingTask = service.listMatches(status: "forming")
             async let convertedTask = service.listMatches(status: "converted")
-            async let patternsTask = service.listPatterns()
 
             let activeAmbitions = try await ambitionsTask
             let formingMatches = try await formingTask
             let convertedMatches = try await convertedTask
-            let recurringPatterns = try await patternsTask
 
             let now = Date()
             ambitions = activeAmbitions.filter { ambition in
@@ -85,7 +69,6 @@ final class AmbitionsViewModel: ObservableObject {
 
             let mergedMatches = Self.mergeUnique(formingMatches + convertedMatches)
             matches = mergedMatches
-            patterns = recurringPatterns
 
             hasLoaded = true
         } catch {
@@ -175,55 +158,6 @@ final class AmbitionsViewModel: ObservableObject {
 enum AmbitionMatchAction: Equatable {
     case accept
     case decline
-}
-
-enum AmbitionsSection: String, CaseIterable, Identifiable {
-    case ambition
-    case matches
-    case hangouts
-    case weekly
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .ambition: return "Ambition"
-        case .matches: return "Matches"
-        case .hangouts: return "Hangouts"
-        case .weekly: return "Weekly"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .ambition: return "bolt.fill"
-        case .matches: return "person.2.fill"
-        case .hangouts: return "figure.2"
-        case .weekly: return "calendar"
-        }
-    }
-
-    var emptyTitle: String {
-        switch self {
-        case .ambition: return "No active ambitions"
-        case .matches: return "No matches yet"
-        case .hangouts: return "No hangouts yet"
-        case .weekly: return "No weekly patterns"
-        }
-    }
-
-    var emptySubtitle: String {
-        switch self {
-        case .ambition:
-            return "Start your first ambition and we will match you with the right people."
-        case .matches:
-            return "When your ambitions line up with someone else, matches will appear here."
-        case .hangouts:
-            return "Converted matches become hangouts and will show up in this tab."
-        case .weekly:
-            return "Set recurring availability to get better weekly matches."
-        }
-    }
 }
 
 enum ISODateParser {

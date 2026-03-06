@@ -178,7 +178,7 @@ final class HangoutsViewModel: ObservableObject {
 
         let item = HangoutItem(
             id: newID,
-            sourceType: .hangout,
+            sourceType: draft.sourceType,
             title: draft.title,
             description: draft.description,
             vibe: draft.vibe,

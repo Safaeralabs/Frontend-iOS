@@ -97,3 +97,126 @@ enum FriendZoneTheme {
         static let easeInOutCirc = FriendZoneTokens.Motion.easeInOutCirc
     }
 }
+
+struct FriendZoneModuleHeader<Trailing: View>: View {
+    let leadingText: String
+    let highlightText: String
+    let subtitle: String?
+    let topInset: CGFloat
+    let horizontalPadding: CGFloat
+    let trailing: Trailing
+
+    init(
+        leadingText: String,
+        highlightText: String,
+        subtitle: String? = nil,
+        topInset: CGFloat = 0,
+        horizontalPadding: CGFloat = 20,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.leadingText = leadingText
+        self.highlightText = highlightText
+        self.subtitle = subtitle
+        self.topInset = topInset
+        self.horizontalPadding = horizontalPadding
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                (
+                    Text(leadingText)
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                    + Text(highlightText)
+                        .foregroundColor(FriendZoneTheme.Colors.primary)
+                )
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XL, weight: .bold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+
+                Spacer(minLength: 8)
+
+                trailing
+            }
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.top, topInset + 16)
+        .padding(.bottom, 14)
+        .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.x2l, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.x2l, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .friendZoneShadow(FriendZoneTheme.Shadows.sm)
+    }
+}
+
+extension FriendZoneModuleHeader where Trailing == EmptyView {
+    init(
+        leadingText: String,
+        highlightText: String,
+        subtitle: String? = nil,
+        topInset: CGFloat = 0,
+        horizontalPadding: CGFloat = 20
+    ) {
+        self.init(
+            leadingText: leadingText,
+            highlightText: highlightText,
+            subtitle: subtitle,
+            topInset: topInset,
+            horizontalPadding: horizontalPadding
+        ) {
+            EmptyView()
+        }
+    }
+}
+
+struct FriendZoneLogoMark: View {
+    var size: CGFloat = 20
+    var cornerRadius: CGFloat = 6
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.white.opacity(0.86))
+            .frame(width: size, height: size)
+            .overlay {
+                Image("FriendZoneLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size * 0.74, height: size * 0.74)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+            }
+    }
+}
+
+struct FriendZoneBrandPill: View {
+    var textColor: Color = FriendZoneTheme.Colors.textPrimary
+
+    var body: some View {
+        HStack(spacing: 10) {
+            FriendZoneLogoMark(size: 20, cornerRadius: 6)
+            Text("FriendZone")
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                .foregroundColor(textColor)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(Color.white.opacity(0.80))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+}

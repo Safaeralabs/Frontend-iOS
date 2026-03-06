@@ -168,13 +168,17 @@ struct CreateHangoutDraft {
     var longitude: Double? = nil
     var startAt: Date = Date().addingTimeInterval(60 * 60)
     var durationHours: Int = 2
+    var isTimeFlexible: Bool = false
     var capacity: Int = 6
+    var isCapacityUnlimited: Bool = false
     var visibility: HangoutVisibilityOption = .public
     var inviteCode: String = ""
     var genderPreference: HangoutGenderPreference = .any
     var audienceTags: [String] = []
     var isMicro: Bool = false
     var isLive: Bool = false
+    var sourceType: HangoutSourceType = .hangout
+    var sourceLabel: String? = nil
     var coverImageData: Data? = nil
     var coverSeed: Int = 0
 }
