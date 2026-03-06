@@ -15,6 +15,13 @@ struct RootTabView: View {
     @State private var isShowingMapBlurLift = false
     @State private var mapTransitionToken = 0
     @State private var lastTabForTransition: AppTab = .hangouts
+    @State private var hasRestoredMapViewport = false
+    @State private var openingMapDetailHangoutID: Int?
+
+    @AppStorage("fz.maps.center.lat") private var storedMapCenterLat: Double = 52.52
+    @AppStorage("fz.maps.center.lon") private var storedMapCenterLon: Double = 13.405
+    @AppStorage("fz.maps.span.latDelta") private var storedMapSpanLatDelta: Double = 0.08
+    @AppStorage("fz.maps.span.lonDelta") private var storedMapSpanLonDelta: Double = 0.08
 
     private let userCoordinate = CLLocationCoordinate2D(latitude: 52.5176, longitude: 13.4095)
 
@@ -41,7 +48,9 @@ struct RootTabView: View {
                     .padding(.bottom, max(2, proxy.safeAreaInsets.bottom - 24))
             }
             .ignoresSafeArea(.container, edges: [.top, .bottom])
-            .fullScreenCover(item: $mapDetailHangout) { hangout in
+            .fullScreenCover(item: $mapDetailHangout, onDismiss: {
+                openingMapDetailHangoutID = nil
+            }) { hangout in
                 NavigationStack {
                     HangoutDetailView(
                         hangout: hangout,
@@ -66,6 +75,32 @@ struct RootTabView: View {
                     triggerMapBlurLift()
                 }
                 lastTabForTransition = current
+            }
+            .onAppear {
+                guard !hasRestoredMapViewport else { return }
+                hasRestoredMapViewport = true
+                mapRegion = MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(
+                        latitude: storedMapCenterLat,
+                        longitude: storedMapCenterLon
+                    ),
+                    span: MKCoordinateSpan(
+                        latitudeDelta: max(0.002, storedMapSpanLatDelta),
+                        longitudeDelta: max(0.002, storedMapSpanLonDelta)
+                    )
+                )
+            }
+            .onChange(of: mapRegion.center.latitude) { _ in
+                persistMapViewport()
+            }
+            .onChange(of: mapRegion.center.longitude) { _ in
+                persistMapViewport()
+            }
+            .onChange(of: mapRegion.span.latitudeDelta) { _ in
+                persistMapViewport()
+            }
+            .onChange(of: mapRegion.span.longitudeDelta) { _ in
+                persistMapViewport()
             }
         }
     }
@@ -123,8 +158,12 @@ struct RootTabView: View {
                         MapsOverlayView(
                             hangouts: mapHangouts,
                             selectedHangout: selectedMapHangout,
+                            openingDetailHangoutID: openingMapDetailHangoutID,
                             isActive: showingMaps,
-                            onCloseSelection: { selectedMapHangoutID = nil },
+                            onCloseSelection: {
+                                selectedMapHangoutID = nil
+                                openingMapDetailHangoutID = nil
+                            },
                             onLocateMe: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     mapRegion.center = userCoordinate
@@ -132,7 +171,13 @@ struct RootTabView: View {
                             },
                             onOpenDetail: { hangout in
                                 FriendZoneHaptics.selection()
-                                mapDetailHangout = hangout
+                                openingMapDetailHangoutID = hangout.id
+                                let openingID = hangout.id
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                    guard openingMapDetailHangoutID == openingID else { return }
+                                    mapDetailHangout = hangout
+                                    openingMapDetailHangoutID = nil
+                                }
                             },
                             onReportHangout: { _ in
                                 FriendZoneHaptics.lightImpact()
@@ -229,6 +274,22 @@ struct RootTabView: View {
                 isShowingMapBlurLift = false
             }
         }
+    }
+
+    private func persistMapViewport() {
+        let lat = mapRegion.center.latitude
+        let lon = mapRegion.center.longitude
+        let latDelta = mapRegion.span.latitudeDelta
+        let lonDelta = mapRegion.span.longitudeDelta
+
+        guard lat.isFinite, lon.isFinite, latDelta.isFinite, lonDelta.isFinite else {
+            return
+        }
+
+        storedMapCenterLat = lat
+        storedMapCenterLon = lon
+        storedMapSpanLatDelta = max(0.002, latDelta)
+        storedMapSpanLonDelta = max(0.002, lonDelta)
     }
 }
 
@@ -369,6 +430,7 @@ private struct PersistentDiscoveryMapView: View {
 private struct MapsOverlayView: View {
     let hangouts: [HangoutItem]
     let selectedHangout: HangoutItem?
+    let openingDetailHangoutID: Int?
     let isActive: Bool
     let onCloseSelection: () -> Void
     let onLocateMe: () -> Void
@@ -404,7 +466,10 @@ private struct MapsOverlayView: View {
             }
 
             if let selectedHangout {
-                markerInfoPanel(selectedHangout)
+                markerInfoPanel(
+                    selectedHangout,
+                    isOpeningDetail: openingDetailHangoutID == selectedHangout.id
+                )
                     .padding(.horizontal, 16)
                     .padding(.top, 104)
                     .padding(.bottom, 12)
@@ -460,7 +525,7 @@ private struct MapsOverlayView: View {
         .animation(.easeOut(duration: 0.2), value: selectedHangout?.id)
     }
 
-    private func markerInfoPanel(_ hangout: HangoutItem) -> some View {
+    private func markerInfoPanel(_ hangout: HangoutItem, isOpeningDetail: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Text(vibeEmoji(hangout.vibe))
@@ -519,6 +584,7 @@ private struct MapsOverlayView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .disabled(isOpeningDetail)
 
                 Button {
                     onReportHangout(hangout)
@@ -536,6 +602,7 @@ private struct MapsOverlayView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .disabled(isOpeningDetail)
             }
         }
         .padding(12)
@@ -545,6 +612,10 @@ private struct MapsOverlayView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
         }
+        .scaleEffect(isOpeningDetail ? 0.97 : 1.0)
+        .opacity(isOpeningDetail ? 0.22 : 1.0)
+        .blur(radius: isOpeningDetail ? 2.2 : 0)
+        .animation(.easeInOut(duration: 0.16), value: isOpeningDetail)
     }
 
     private func timeLabel(_ value: Date) -> String {
