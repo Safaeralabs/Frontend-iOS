@@ -134,7 +134,7 @@ private struct OnboardingProfileData {
 }
 
 struct OnboardingFlowView: View {
-    @AppStorage("fz.auth.hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @EnvironmentObject private var session: AppSessionStore
 
     @State private var currentStep: OnboardingStep = .welcome
     @State private var data = OnboardingProfileData()
@@ -280,9 +280,32 @@ struct OnboardingFlowView: View {
         guard !isCompleting else { return }
         completionError = ""
         isCompleting = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            isCompleting = false
-            hasCompletedOnboarding = true
+        let submission = OnboardingSubmission(
+            name: data.name,
+            avatar: data.avatar,
+            city: data.city,
+            cityPlaceId: data.cityPlaceId,
+            spokenLanguages: data.languages.map { .init(code: $0.code, level: $0.level.rawValue) },
+            interests: data.interests,
+            vibes: data.vibes,
+            availability: data.availability,
+            groupSize: data.groupSize.rawValue,
+            activityTypes: data.activityTypes,
+            gender: data.gender
+        )
+
+        Task {
+            do {
+                try await session.completeOnboarding(submission)
+                await MainActor.run {
+                    isCompleting = false
+                }
+            } catch {
+                await MainActor.run {
+                    isCompleting = false
+                    completionError = error.localizedDescription
+                }
+            }
         }
     }
 }

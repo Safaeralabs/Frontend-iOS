@@ -4,6 +4,7 @@ struct NativeCreatorSpaceHubView: View {
     let userFlags: SettingsUserRoleFlags
     var onClose: (() -> Void)? = nil
 
+    @EnvironmentObject private var session: AppSessionStore
     @State private var activeTab: CreatorSpaceTab = .profile
     @State private var showCreateSheet = false
     @State private var profileDraft = CreatorProfileDraft.sample
@@ -14,6 +15,7 @@ struct NativeCreatorSpaceHubView: View {
     @State private var selectedOfferDashboardItem: CreatorOfferItem?
     @State private var isSavingProfile = false
     @State private var didSaveProfile = false
+    @State private var saveErrorMessage: String?
     @State private var isShowingPublicProfile = false
 
     private var availableTabs: [CreatorSpaceTab] {
@@ -155,11 +157,12 @@ struct NativeCreatorSpaceHubView: View {
             if !availableTabs.contains(activeTab), let first = availableTabs.first {
                 activeTab = first
             }
+            hydrateProfileDraftIfNeeded()
         }
         .sheet(isPresented: $isShowingPublicProfile) {
             NavigationStack {
                 PublicProfileView(
-                    profile: profileDraft,
+                    profile: publicProfileData,
                     leadingText: "Public ",
                     highlightText: "profile",
                     subtitle: nil
@@ -310,6 +313,16 @@ struct NativeCreatorSpaceHubView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                         .background(FriendZoneTheme.Colors.success.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                if let saveErrorMessage {
+                    Text(saveErrorMessage)
+                        .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.error)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(FriendZoneTheme.Colors.error.opacity(0.10))
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
 
@@ -513,10 +526,63 @@ struct NativeCreatorSpaceHubView: View {
     private func saveProfile() {
         isSavingProfile = true
         didSaveProfile = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            isSavingProfile = false
-            didSaveProfile = true
+        saveErrorMessage = nil
+        let submission = ProfileUpdateSubmission(
+            displayName: profileDraft.displayName,
+            city: profileDraft.city,
+            bio: profileDraft.bio,
+            instagramUsername: profileDraft.instagram
+        )
+        Task {
+            do {
+                try await session.updateProfile(submission)
+                await MainActor.run {
+                    isSavingProfile = false
+                    didSaveProfile = true
+                    hydrateProfileDraftIfNeeded(force: true)
+                }
+            } catch {
+                await MainActor.run {
+                    isSavingProfile = false
+                    saveErrorMessage = error.localizedDescription
+                }
+            }
         }
+    }
+
+    private func hydrateProfileDraftIfNeeded(force: Bool = false) {
+        guard force || profileDraft == .sample else { return }
+        let user = session.currentUser
+        let profile = session.currentProfile
+        let displayNameParts = [user?.firstName, user?.lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let displayName = displayNameParts.isEmpty ? (user?.username ?? profileDraft.displayName) : displayNameParts.joined(separator: " ")
+
+        profileDraft = CreatorProfileDraft(
+            displayName: displayName,
+            bio: profile?.bio ?? "",
+            instagram: profile?.instagramUsername ?? "",
+            website: profileDraft.website,
+            city: profile?.cityName ?? ""
+        )
+    }
+
+    private var publicProfileData: PublicProfileData {
+        let base = PublicProfileData(draft: profileDraft)
+        return PublicProfileData(
+            id: base.id,
+            userID: session.currentUser?.id,
+            displayName: profileDraft.displayName,
+            username: session.currentUser?.username,
+            bio: profileDraft.bio,
+            instagram: profileDraft.instagram,
+            website: profileDraft.website,
+            city: profileDraft.city,
+            avatarURL: session.currentProfile?.avatarImageUrl,
+            followersCount: session.currentProfile?.followersCount,
+            hostRating: session.currentProfile?.hostRating
+        )
     }
 }
 

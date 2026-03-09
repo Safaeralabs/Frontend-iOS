@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AuthenticationServices
 
 private enum AuthScreen {
     case login
@@ -39,8 +40,7 @@ private enum AuthSocialProvider {
 }
 
 struct AuthFlowView: View {
-    @AppStorage("fz.auth.isAuthenticated") private var isAuthenticated = false
-    @AppStorage("fz.auth.hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @EnvironmentObject private var session: AppSessionStore
     @State private var currentScreen: AuthScreen = .login
 
     var body: some View {
@@ -48,34 +48,38 @@ struct AuthFlowView: View {
             authBackground
                 .ignoresSafeArea()
 
-            Group {
-                switch currentScreen {
-                case .login:
-                    LoginScreen(
-                        onSignIn: { isAuthenticated = true },
-                        onSignUp: { currentScreen = .signup },
-                        onForgotPassword: { currentScreen = .forgotPassword }
-                    )
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .trailing)), removal: .opacity))
-                case .signup:
-                    SignUpScreen(
-                        onCreateAccount: {
-                            hasCompletedOnboarding = false
-                            isAuthenticated = true
-                        },
-                        onSignIn: { currentScreen = .login }
-                    )
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .trailing)), removal: .opacity))
-                case .forgotPassword:
-                    ForgotPasswordScreen(
-                        onBackToLogin: { currentScreen = .login }
-                    )
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .trailing)), removal: .opacity))
+            VStack(spacing: 10) {
+                #if DEBUG
+                authDebugBanner
+                #endif
+
+                Group {
+                    switch currentScreen {
+                    case .login:
+                        LoginScreen(
+                            onSignUp: { currentScreen = .signup },
+                            onForgotPassword: { currentScreen = .forgotPassword }
+                        )
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .trailing)), removal: .opacity))
+                    case .signup:
+                        SignUpScreen(
+                            onSignIn: { currentScreen = .login }
+                        )
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .trailing)), removal: .opacity))
+                    case .forgotPassword:
+                        ForgotPasswordScreen(
+                            onBackToLogin: { currentScreen = .login }
+                        )
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .trailing)), removal: .opacity))
+                    }
                 }
             }
         }
         .animation(FriendZoneTheme.Motion.easeOutExpo, value: currentScreen)
         .ignoresSafeArea(.container, edges: [.bottom])
+        .task {
+            await session.refreshBackendReachability()
+        }
     }
 
     private var authBackground: some View {
@@ -88,6 +92,38 @@ struct AuthFlowView: View {
                 }
             }()
         )
+    }
+
+    private var authDebugBanner: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(session.backendReachable ? Color.green : FriendZoneTheme.Colors.error)
+                .frame(width: 8, height: 8)
+
+            Text("API \(session.backendReachable ? "reachable" : "unreachable")")
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(AppConfig.baseURL.absoluteString)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Text("DBG-0310")
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.primary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.84))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule()
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, 20)
     }
 }
 
@@ -165,7 +201,7 @@ private struct AuthLayout<Content: View>: View {
 }
 
 private struct LoginScreen: View {
-    let onSignIn: () -> Void
+    @EnvironmentObject private var session: AppSessionStore
     let onSignUp: () -> Void
     let onForgotPassword: () -> Void
 
@@ -236,7 +272,7 @@ private struct LoginScreen: View {
                 authDivider("or continue with")
 
                 Button {
-                    errorMessage = "Google sign-in will be connected in backend integration."
+                    errorMessage = "Google sign-in backend is ready, but this iOS build still needs the native Google SDK flow."
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "globe")
@@ -288,15 +324,27 @@ private struct LoginScreen: View {
         guard canSubmit else { return }
         errorMessage = ""
         isSubmitting = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            isSubmitting = false
-            onSignIn()
+        Task {
+            do {
+                try await session.login(
+                    username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                    password: password
+                )
+                await MainActor.run {
+                    isSubmitting = false
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                }
+            }
         }
     }
 }
 
 private struct SignUpScreen: View {
-    let onCreateAccount: () -> Void
+    @EnvironmentObject private var session: AppSessionStore
     let onSignIn: () -> Void
 
     @State private var username = ""
@@ -307,6 +355,8 @@ private struct SignUpScreen: View {
     @State private var isSocialSubmitting = false
     @State private var errorMessage = ""
     @State private var backendErrors: [String: String] = [:]
+    private let appleSignInCoordinator = AppleSignInCoordinator.shared
+    private let googleSignInCoordinator = GoogleSignInCoordinator.shared
 
     var body: some View {
         AuthLayout(
@@ -490,9 +540,23 @@ private struct SignUpScreen: View {
         errorMessage = ""
         backendErrors = [:]
         isSubmitting = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
-            isSubmitting = false
-            onCreateAccount()
+        Task {
+            do {
+                try await session.register(
+                    username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                    email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                    password: password,
+                    passwordConfirmation: passwordConfirm
+                )
+                await MainActor.run {
+                    isSubmitting = false
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                }
+            }
         }
     }
 
@@ -500,10 +564,53 @@ private struct SignUpScreen: View {
         guard !isSocialSubmitting && !isSubmitting else { return }
         errorMessage = ""
         backendErrors = [:]
-        isSocialSubmitting = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            isSocialSubmitting = false
-            onCreateAccount()
+        switch provider {
+        case .google:
+            isSocialSubmitting = true
+            Task {
+                do {
+                    let credential = try await googleSignInCoordinator.signIn()
+                    try await session.loginWithGoogle(
+                        authorizationCode: credential.authorizationCode,
+                        redirectURI: credential.redirectURI
+                    )
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                        if let authError = error as? ASWebAuthenticationSessionError,
+                           authError.code == .canceledLogin {
+                            return
+                        }
+                        errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                    }
+                }
+            }
+        case .apple:
+            isSocialSubmitting = true
+            Task {
+                do {
+                    let credential = try await appleSignInCoordinator.signIn()
+                    try await session.loginWithApple(
+                        authorizationCode: credential.authorizationCode,
+                        identityToken: credential.identityToken
+                    )
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                        if let authError = error as? ASAuthorizationError,
+                           authError.code == .canceled {
+                            return
+                        }
+                        errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                    }
+                }
+            }
         }
     }
 
@@ -514,7 +621,152 @@ private struct SignUpScreen: View {
     }
 }
 
+private struct AppleSignInPayload {
+    let authorizationCode: String
+    let identityToken: String?
+}
+
+private struct GoogleSignInPayload {
+    let authorizationCode: String
+    let redirectURI: String
+}
+
+private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    static let shared = AppleSignInCoordinator()
+
+    private var continuation: CheckedContinuation<AppleSignInPayload, Error>?
+
+    @MainActor
+    func signIn() async throws -> AppleSignInPayload {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+
+            let request = ASAuthorizationAppleIDProvider().createRequest()
+            request.requestedScopes = [.fullName, .email]
+
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let codeData = credential.authorizationCode,
+              let authorizationCode = String(data: codeData, encoding: .utf8) else {
+            continuation?.resume(throwing: AppSessionError.invalidResponse)
+            continuation = nil
+            return
+        }
+
+        let identityToken = credential.identityToken.flatMap { String(data: $0, encoding: .utf8) }
+        continuation?.resume(
+            returning: AppleSignInPayload(
+                authorizationCode: authorizationCode,
+                identityToken: identityToken
+            )
+        )
+        continuation = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        continuation?.resume(throwing: error)
+        continuation = nil
+    }
+}
+
+private final class GoogleSignInCoordinator: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = GoogleSignInCoordinator()
+
+    @MainActor
+    func signIn() async throws -> GoogleSignInPayload {
+        guard let clientID = AppConfig.googleClientID,
+              let redirectURI = AppConfig.googleRedirectURI,
+              let redirectScheme = AppConfig.googleRedirectScheme else {
+            throw AppSessionError.httpStatus(500, "Missing Google client configuration in this build.")
+        }
+
+        var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")
+        components?.queryItems = [
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: "openid email profile"),
+            URLQueryItem(name: "prompt", value: "select_account"),
+            URLQueryItem(name: "access_type", value: "offline"),
+        ]
+
+        guard let authURL = components?.url else {
+            throw AppSessionError.invalidResponse
+        }
+
+        let callbackURL = try await startSession(url: authURL, callbackScheme: redirectScheme)
+        guard let code = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "code" })?
+            .value else {
+            throw AppSessionError.httpStatus(400, "Google did not return an authorization code.")
+        }
+
+        return GoogleSignInPayload(authorizationCode: code, redirectURI: redirectURI)
+    }
+
+    @MainActor
+    private func startSession(url: URL, callbackScheme: String) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: callbackScheme
+            ) { callbackURL, error in
+                Self.releaseAllSessions()
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                guard let callbackURL else {
+                    continuation.resume(throwing: AppSessionError.invalidResponse)
+                    return
+                }
+
+                continuation.resume(returning: callbackURL)
+            }
+
+            session.presentationContextProvider = self
+            session.prefersEphemeralWebBrowserSession = true
+            session.start()
+            Self.retain(session)
+        }
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+    }
+
+    private static var retainedSessions: [ASWebAuthenticationSession] = []
+
+    private static func retain(_ session: ASWebAuthenticationSession) {
+        retainedSessions.append(session)
+    }
+
+    private static func releaseAllSessions() {
+        retainedSessions.removeAll()
+    }
+}
+
 private struct ForgotPasswordScreen: View {
+    @EnvironmentObject private var session: AppSessionStore
     let onBackToLogin: () -> Void
 
     @State private var email = ""
@@ -628,9 +880,19 @@ private struct ForgotPasswordScreen: View {
         }
         errorMessage = ""
         isSubmitting = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            isSubmitting = false
-            didSend = true
+        Task {
+            do {
+                try await session.requestPasswordReset(email: email.trimmingCharacters(in: .whitespacesAndNewlines))
+                await MainActor.run {
+                    isSubmitting = false
+                    didSend = true
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                }
+            }
         }
     }
 }

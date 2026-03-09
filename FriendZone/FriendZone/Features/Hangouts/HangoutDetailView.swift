@@ -16,8 +16,11 @@ struct HangoutDetailView: View {
     @State private var isShowingCancelHangoutConfirm = false
     @State private var selectedPublicProfile: NativePublicProfileDescriptor?
     @State private var selectedPage = 0
+    @State private var selectedInfoPanel = 0
     @GestureState private var pageDragOffset: CGFloat = 0
+    @GestureState private var infoPanelDragOffset: CGFloat = 0
     @State private var displayedParticipants: [DetailPerson]
+    @State private var joinRequests: [DetailJoinRequest]
     @State private var detailMessages: [DetailChatMessage]
     @State private var composerText = ""
     @FocusState private var composerFocused: Bool
@@ -34,6 +37,7 @@ struct HangoutDetailView: View {
         _localJoinStatus = State(initialValue: joinStatus)
         _isWaitlisted = State(initialValue: joinStatus == .requested && hangout.isFull)
         _displayedParticipants = State(initialValue: Self.seedParticipants(from: hangout))
+        _joinRequests = State(initialValue: Self.seedJoinRequests(from: hangout))
         _detailMessages = State(initialValue: Self.seedActivityMessages(from: hangout))
     }
 
@@ -123,12 +127,52 @@ struct HangoutDetailView: View {
     }
 
     private func infoPage(topInset: CGFloat, pageHeight: CGFloat) -> some View {
+        GeometryReader { proxy in
+            let panels = HStack(spacing: 0) {
+                generalInfoPanel(topInset: topInset)
+                    .frame(width: proxy.size.width)
+
+                if hasRequestsPanel {
+                    requestsPanel(topInset: topInset)
+                        .frame(width: proxy.size.width)
+                }
+            }
+            .offset(x: -CGFloat(selectedInfoPanel) * proxy.size.width + infoPanelDragOffset)
+            .animation(.interactiveSpring(response: 0.34, dampingFraction: 0.86), value: selectedInfoPanel)
+
+            if hasRequestsPanel {
+                panels
+                    .simultaneousGesture(horizontalInfoPanelGesture(width: proxy.size.width))
+            } else {
+                panels
+            }
+        }
+    }
+
+    private func horizontalInfoPanelGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 18)
+            .updating($infoPanelDragOffset) { value, state, _ in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                state = value.translation.width
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let threshold = width * 0.16
+                if value.translation.width < -threshold {
+                    selectedInfoPanel = 1
+                } else if value.translation.width > threshold {
+                    selectedInfoPanel = 0
+                }
+            }
+    }
+
+    private func generalInfoPanel(topInset: CGFloat) -> some View {
         VStack(spacing: 0) {
             ticketCard
-                .padding(.top, topInset + 6)
+                .padding(.top, topInset + 2)
 
             peopleLocationCard
-                .padding(.top, 12)
+                .padding(.top, 10)
 
             if isEnded {
                 statusBanner(
@@ -146,11 +190,48 @@ struct HangoutDetailView: View {
 
             Spacer(minLength: 0)
 
-            pageCue(
-                title: "Swipe up for activity",
-                subtitle: "Chat, people and location",
-                direction: .up
-            )
+            HStack(spacing: 10) {
+                pageCue(
+                    title: "Swipe up for activity",
+                    subtitle: "Open the group chat",
+                    direction: .up
+                )
+
+                if hasRequestsPanel {
+                    pageCue(
+                        title: "Swipe left for requests",
+                        subtitle: "\(joinRequests.count) pending",
+                        direction: .left
+                    )
+                }
+            }
+            .padding(.bottom, 12)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: 430)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func requestsPanel(topInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            joinRequestsCard
+                .padding(.top, topInset + 2)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 10) {
+                pageCue(
+                    title: "Swipe right for info",
+                    subtitle: "Back to the hangout",
+                    direction: .right
+                )
+
+                pageCue(
+                    title: "Swipe up for activity",
+                    subtitle: "Open the group chat",
+                    direction: .up
+                )
+            }
             .padding(.bottom, 12)
         }
         .padding(.horizontal, 20)
@@ -159,9 +240,9 @@ struct HangoutDetailView: View {
     }
 
     private func activityPage(topInset: CGFloat, pageHeight: CGFloat) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             activityHeader
-                .padding(.top, topInset + 8)
+                .padding(.top, topInset + 2)
 
             Group {
                 if canOpenChat {
@@ -171,7 +252,7 @@ struct HangoutDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: min(420, pageHeight * 0.56), maxHeight: min(560, pageHeight * 0.68))
+            .frame(minHeight: min(500, pageHeight * 0.68), maxHeight: min(640, pageHeight * 0.76))
 
             Spacer(minLength: 0)
 
@@ -486,10 +567,10 @@ struct HangoutDetailView: View {
     private var activityHeader: some View {
         VStack(spacing: 4) {
             Text("Hangout Activity")
-                .font(FriendZoneTheme.Typography.system(22, weight: .bold))
+                .font(FriendZoneTheme.Typography.system(20, weight: .bold))
                 .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
-            Text(canOpenChat ? "Live chat, people and location" : "Activity unlocks once the host accepts you")
+            Text(canOpenChat ? "Live group chat" : "Activity unlocks once the host accepts you")
                 .font(FriendZoneTheme.Typography.system(12, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
                 .multilineTextAlignment(.center)
@@ -566,6 +647,7 @@ struct HangoutDetailView: View {
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
+        .frame(maxHeight: .infinity)
     }
 
     private func activityMessageBubble(_ message: DetailChatMessage) -> some View {
@@ -731,6 +813,113 @@ struct HangoutDetailView: View {
         .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
     }
 
+    private var joinRequestsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Requests to Join")
+                        .font(FriendZoneTheme.Typography.system(22, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text("Review who wants to join this hangout.")
+                        .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Text("\(joinRequests.count)")
+                    .font(FriendZoneTheme.Typography.system(12, weight: .heavy))
+                    .foregroundColor(detailAccentColor)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(detailAccentColor.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    ForEach(joinRequests) { request in
+                        joinRequestRow(request)
+                    }
+                }
+                .padding(.bottom, 10)
+            }
+        }
+        .padding(18)
+        .background(FriendZoneTheme.Colors.surface.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
+    }
+
+    private func joinRequestRow(_ request: DetailJoinRequest) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                participantAvatar(for: request.initials, color: request.tint, size: 48)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(request.displayName)
+                        .font(FriendZoneTheme.Typography.system(14, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text(request.headline)
+                        .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+
+                    Text(request.note)
+                        .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                        .lineSpacing(1.8)
+                        .lineLimit(3)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                ticketMetaPill(request.city.uppercased())
+                ticketMetaPill(request.arrivalHint.uppercased())
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    acceptJoinRequest(request)
+                } label: {
+                    Text("Accept")
+                        .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(detailAccentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
+                Button {
+                    declineJoinRequest(request)
+                } label: {
+                    Text("Decline")
+                        .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(Color.black.opacity(0.045))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+            }
+        }
+        .padding(14)
+        .background(FriendZoneTheme.Colors.surfaceElevated.opacity(0.94))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
     private var primaryBottomAction: some View {
         Group {
             if isHost {
@@ -810,7 +999,7 @@ struct HangoutDetailView: View {
 
     private func pageCue(title: String, subtitle: String, direction: PageCueDirection) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: direction == .up ? "arrow.up" : "arrow.down")
+            Image(systemName: direction.iconName)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(FriendZoneTheme.Colors.textTertiary)
 
@@ -898,6 +1087,10 @@ struct HangoutDetailView: View {
         isHost || localJoinStatus == .joined
     }
 
+    private var hasRequestsPanel: Bool {
+        isHost && !joinRequests.isEmpty && !isCancelledByHost
+    }
+
     private var currentRole: DetailRole {
         if isHost { return .host }
         switch localJoinStatus {
@@ -975,6 +1168,41 @@ struct HangoutDetailView: View {
             bio: person.role == "Host" ? "Creates intimate social plans around \(hangout.cityName)." : "Usually joins small curated plans, dinners and micro-events.",
             accentHex: person.hexColor
         )
+    }
+
+    private func acceptJoinRequest(_ request: DetailJoinRequest) {
+        joinRequests.removeAll { $0.id == request.id }
+        displayedParticipants.append(
+            DetailPerson(
+                id: request.id,
+                displayName: request.displayName,
+                role: "Member",
+                tint: request.tint,
+                hexColor: request.hexColor,
+                isConfirmed: true
+            )
+        )
+        detailMessages.insert(
+            DetailChatMessage(
+                author: hangout.hostName,
+                initials: String(hangout.hostName.prefix(1)).uppercased(),
+                text: "\(request.firstName) just joined the hangout.",
+                time: "now",
+                tint: detailAccentColor,
+                isMine: false
+            ),
+            at: 0
+        )
+        if joinRequests.isEmpty {
+            selectedInfoPanel = 0
+        }
+    }
+
+    private func declineJoinRequest(_ request: DetailJoinRequest) {
+        joinRequests.removeAll { $0.id == request.id }
+        if joinRequests.isEmpty {
+            selectedInfoPanel = 0
+        }
     }
 
     private func dateOnlyLabel(_ date: Date) -> String {
@@ -1068,11 +1296,49 @@ struct HangoutDetailView: View {
             DetailChatMessage(author: hangout.hostName, initials: String(hangout.hostName.prefix(1)).uppercased(), text: "Final spot details are in the location card below.", time: "now", tint: Color(hex: "#5C6BFF"), isMine: false)
         ]
     }
+
+    private static func seedJoinRequests(from hangout: HangoutItem) -> [DetailJoinRequest] {
+        guard hangout.hostName.lowercased() == "you" else { return [] }
+
+        return [
+            DetailJoinRequest(
+                id: "request-\(hangout.id)-1",
+                displayName: "Mia Flores",
+                headline: "Enjoys intimate dinners and rooftop plans",
+                note: "I am nearby and can arrive on time. Happy to bring one more friend if needed.",
+                city: hangout.cityName,
+                arrivalHint: "On time",
+                tint: Color(hex: "#FF5E7E"),
+                hexColor: "#FF5E7E"
+            ),
+            DetailJoinRequest(
+                id: "request-\(hangout.id)-2",
+                displayName: "Jonas Weber",
+                headline: "Usually joins artsy social plans",
+                note: "Looking for a calm group tonight. This one looks like my vibe.",
+                city: hangout.cityName,
+                arrivalHint: "10 min away",
+                tint: Color(hex: "#22B8A2"),
+                hexColor: "#22B8A2"
+            )
+        ]
+    }
 }
 
 private enum PageCueDirection {
     case up
     case down
+    case left
+    case right
+
+    var iconName: String {
+        switch self {
+        case .up: return "arrow.up"
+        case .down: return "arrow.down"
+        case .left: return "arrow.left"
+        case .right: return "arrow.right"
+        }
+    }
 }
 
 private enum DetailRole {
@@ -1120,6 +1386,27 @@ private struct DetailChatMessage: Identifiable {
     let time: String
     let tint: Color
     let isMine: Bool
+}
+
+private struct DetailJoinRequest: Identifiable {
+    let id: String
+    let displayName: String
+    let headline: String
+    let note: String
+    let city: String
+    let arrivalHint: String
+    let tint: Color
+    let hexColor: String
+
+    var initials: String {
+        let parts = displayName.split(separator: " ")
+        let value = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return value.isEmpty ? "?" : value.uppercased()
+    }
+
+    var firstName: String {
+        displayName.split(separator: " ").first.map(String.init) ?? displayName
+    }
 }
 
 private struct NativePublicProfileDescriptor: Identifiable {

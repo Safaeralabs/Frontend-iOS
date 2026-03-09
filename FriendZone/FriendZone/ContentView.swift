@@ -8,8 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @AppStorage("fz.auth.isAuthenticated") private var isAuthenticated = false
-    @AppStorage("fz.auth.hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @StateObject private var session = AppSessionStore.shared
     @State private var isShowingLaunchSplash = true
     @State private var hasScheduledSplashDismiss = false
 
@@ -24,14 +23,22 @@ struct ContentView: View {
                     .zIndex(10)
             }
         }
-        .onAppear(perform: scheduleSplashDismiss)
+        .environmentObject(session)
+        .onAppear {
+            scheduleSplashDismiss()
+            Task {
+                await session.bootstrapIfNeeded()
+            }
+        }
     }
 
     @ViewBuilder
     private var rootContent: some View {
-        if !isAuthenticated {
+        if session.isHydrating {
+            Color.clear
+        } else if !session.isAuthenticated {
             AuthFlowView()
-        } else if !hasCompletedOnboarding {
+        } else if !session.hasCompletedOnboarding {
             OnboardingFlowView()
         } else {
             RootTabView()

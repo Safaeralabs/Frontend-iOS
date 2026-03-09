@@ -191,93 +191,17 @@ final class RoleRequestsAPIService: RoleRequestsAPIServiceProtocol {
 }
 
 final class SettingsProfileAPIService: SettingsProfileAPIServiceProtocol {
-    private let session: URLSession
-    private let decoder: JSONDecoder
-
-    init() {
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpShouldSetCookies = true
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 30
-
-        session = URLSession(configuration: configuration)
-
-        decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-    }
+    init() {}
 
     func fetchUserRoleFlags() async throws -> SettingsUserRoleFlags {
-        var request = URLRequest(url: AppConfig.url(for: "/api/profile/"))
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw RoleRequestsAPIError.invalidResponse
+        await AppSessionStore.shared.bootstrapIfNeeded()
+        return await MainActor.run {
+            AppSessionStore.shared.roleFlags
         }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            do {
-                let decoded = try decoder.decode(ProfileFlagsResponse.self, from: data)
-
-                return SettingsUserRoleFlags(
-                    isEventCreator: decoded.profile?.isEventCreator ?? decoded.isEventCreator ?? false,
-                    isVenueOwner: decoded.profile?.isVenueOwner ?? decoded.isVenueOwner ?? false,
-                    isStaff: decoded.user?.isStaff ?? decoded.isStaff ?? false
-                )
-            } catch {
-                throw RoleRequestsAPIError.decodingFailed
-            }
-        case 401:
-            throw RoleRequestsAPIError.unauthorized
-        default:
-            let message = decodeServerMessage(data: data) ?? "Unexpected error"
-            throw RoleRequestsAPIError.httpStatus(httpResponse.statusCode, message)
-        }
-    }
-
-    private func decodeServerMessage(data: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-
-        if let detail = object["detail"] as? String, !detail.isEmpty {
-            return detail
-        }
-
-        if let message = object["message"] as? String, !message.isEmpty {
-            return message
-        }
-
-        if let errors = object["errors"] as? [String], !errors.isEmpty {
-            return errors.joined(separator: ", ")
-        }
-
-        return nil
     }
 }
 
 private struct APIArrayEnvelope<T: Decodable>: Decodable {
     let results: [T]?
     let data: [T]?
-}
-
-private struct ProfileFlagsResponse: Decodable {
-    let profile: ProfileFlagsPayload?
-    let user: UserFlagsPayload?
-    let isEventCreator: Bool?
-    let isVenueOwner: Bool?
-    let isStaff: Bool?
-}
-
-private struct ProfileFlagsPayload: Decodable {
-    let isEventCreator: Bool?
-    let isVenueOwner: Bool?
-}
-
-private struct UserFlagsPayload: Decodable {
-    let isStaff: Bool?
 }

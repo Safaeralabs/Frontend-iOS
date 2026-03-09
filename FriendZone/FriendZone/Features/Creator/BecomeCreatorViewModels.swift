@@ -10,18 +10,6 @@ final class SettingsCreatorContextViewModel: ObservableObject {
     private let profileAPI: SettingsProfileAPIServiceProtocol
     private var hasLoaded = false
 
-    private static var debugRoleOverride: SettingsUserRoleFlags? {
-        #if DEBUG
-        SettingsUserRoleFlags(
-            isEventCreator: true,
-            isVenueOwner: true,
-            isStaff: false
-        )
-        #else
-        nil
-        #endif
-    }
-
     init(userFlags: SettingsUserRoleFlags, profileAPI: SettingsProfileAPIServiceProtocol? = nil) {
         self.userFlags = userFlags
         self.profileAPI = profileAPI ?? SettingsProfileAPIService()
@@ -29,7 +17,7 @@ final class SettingsCreatorContextViewModel: ObservableObject {
 
     convenience init(profileAPI: SettingsProfileAPIServiceProtocol? = nil) {
         self.init(
-            userFlags: Self.debugRoleOverride ?? .empty,
+            userFlags: AppSessionStore.shared.roleFlags,
             profileAPI: profileAPI
         )
     }
@@ -44,23 +32,12 @@ final class SettingsCreatorContextViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            var fetchedFlags = try await profileAPI.fetchUserRoleFlags()
-            if let debugRoleOverride = Self.debugRoleOverride {
-                fetchedFlags.isEventCreator = debugRoleOverride.isEventCreator
-                fetchedFlags.isVenueOwner = debugRoleOverride.isVenueOwner
-                fetchedFlags.isStaff = debugRoleOverride.isStaff
-            }
+            let fetchedFlags = try await profileAPI.fetchUserRoleFlags()
             userFlags = fetchedFlags
             loadErrorMessage = nil
             hasLoaded = true
         } catch {
-            if let debugRoleOverride = Self.debugRoleOverride {
-                userFlags = debugRoleOverride
-                loadErrorMessage = nil
-                hasLoaded = true
-            } else {
-                loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load profile settings."
-            }
+            loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load profile settings."
         }
     }
 

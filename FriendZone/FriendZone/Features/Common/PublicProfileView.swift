@@ -1,27 +1,126 @@
 import SwiftUI
 
-struct CreatorProfileDraft: Identifiable, Equatable {
-    let id: UUID
+struct PublicProfileData: Identifiable, Equatable {
+    let id: String
+    var userID: Int?
     var displayName: String
+    var username: String?
     var bio: String
     var instagram: String
     var website: String
     var city: String
+    var avatarURL: String?
+    var followersCount: Int?
+    var hostRating: Double?
+    var isFollowing: Bool
 
     init(
-        id: UUID = .init(),
+        id: String,
+        userID: Int? = nil,
         displayName: String,
+        username: String? = nil,
         bio: String,
         instagram: String,
         website: String,
-        city: String
+        city: String,
+        avatarURL: String? = nil,
+        followersCount: Int? = nil,
+        hostRating: Double? = nil,
+        isFollowing: Bool = false
     ) {
         self.id = id
+        self.userID = userID
         self.displayName = displayName
+        self.username = username
         self.bio = bio
         self.instagram = instagram
         self.website = website
         self.city = city
+        self.avatarURL = avatarURL
+        self.followersCount = followersCount
+        self.hostRating = hostRating
+        self.isFollowing = isFollowing
+    }
+
+    init(draft: CreatorProfileDraft) {
+        self.init(
+            id: draft.id.uuidString,
+            userID: draft.userID,
+            displayName: draft.displayName,
+            username: draft.username,
+            bio: draft.bio,
+            instagram: draft.instagram,
+            website: draft.website,
+            city: draft.city,
+            avatarURL: draft.avatarURL,
+            followersCount: draft.followersCount,
+            hostRating: draft.hostRating
+        )
+    }
+
+    init(publicProfile: PublicUserProfile) {
+        let displayNameParts = [publicProfile.user.firstName, publicProfile.user.lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let displayName = displayNameParts.isEmpty ? publicProfile.user.username.capitalized : displayNameParts.joined(separator: " ")
+
+        self.init(
+            id: String(publicProfile.user.id),
+            userID: publicProfile.user.id,
+            displayName: displayName,
+            username: publicProfile.user.username,
+            bio: publicProfile.bio ?? "",
+            instagram: publicProfile.instagramUsername ?? "",
+            website: publicProfile.linkedinURL ?? "",
+            city: publicProfile.cityName ?? "",
+            avatarURL: publicProfile.avatarURL,
+            followersCount: publicProfile.followersCount,
+            hostRating: publicProfile.hostRating
+        )
+    }
+
+    var initial: String {
+        displayName.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0) } ?? "F"
+    }
+}
+
+struct CreatorProfileDraft: Identifiable, Equatable {
+    let id: UUID
+    var userID: Int?
+    var displayName: String
+    var username: String?
+    var bio: String
+    var instagram: String
+    var website: String
+    var city: String
+    var avatarURL: String?
+    var followersCount: Int?
+    var hostRating: Double?
+
+    init(
+        id: UUID = .init(),
+        userID: Int? = nil,
+        displayName: String,
+        username: String? = nil,
+        bio: String,
+        instagram: String,
+        website: String,
+        city: String,
+        avatarURL: String? = nil,
+        followersCount: Int? = nil,
+        hostRating: Double? = nil
+    ) {
+        self.id = id
+        self.userID = userID
+        self.displayName = displayName
+        self.username = username
+        self.bio = bio
+        self.instagram = instagram
+        self.website = website
+        self.city = city
+        self.avatarURL = avatarURL
+        self.followersCount = followersCount
+        self.hostRating = hostRating
     }
 
     static let sample = CreatorProfileDraft(
@@ -38,11 +137,29 @@ struct CreatorProfileDraft: Identifiable, Equatable {
 }
 
 struct PublicProfileView: View {
-    let profile: CreatorProfileDraft
+    @EnvironmentObject private var session: AppSessionStore
+    @State private var profile: PublicProfileData
+    @State private var isLoadingRemoteProfile = false
+    @State private var isTogglingFollow = false
+    @State private var loadErrorMessage: String?
     let leadingText: String
     let highlightText: String
     let subtitle: String?
     var onClose: (() -> Void)? = nil
+
+    init(
+        profile: PublicProfileData,
+        leadingText: String,
+        highlightText: String,
+        subtitle: String?,
+        onClose: (() -> Void)? = nil
+    ) {
+        _profile = State(initialValue: profile)
+        self.leadingText = leadingText
+        self.highlightText = highlightText
+        self.subtitle = subtitle
+        self.onClose = onClose
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -58,6 +175,14 @@ struct PublicProfileView: View {
                 publicProfileCard
                     .padding(.horizontal, 16)
 
+                if let loadErrorMessage {
+                    Text(loadErrorMessage)
+                        .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.error)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 profileBioSection
                     .padding(.horizontal, 16)
 
@@ -69,6 +194,9 @@ struct PublicProfileView: View {
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("\(highlightText.capitalized)")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await hydrateRemoteProfileIfNeeded()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
@@ -95,11 +223,7 @@ struct PublicProfileView: View {
                 Circle()
                     .fill(Color.white.opacity(0.3))
                     .frame(width: 56, height: 56)
-                    .overlay {
-                        Text(profile.initial)
-                            .font(FriendZoneTheme.Typography.system(20, weight: .bold))
-                            .foregroundColor(.white)
-                    }
+                    .overlay { avatarContent }
                     .padding(.trailing, 16)
                     .padding(.bottom, 16)
             }
@@ -113,6 +237,12 @@ struct PublicProfileView: View {
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
                     .foregroundColor(FriendZoneTheme.Colors.textSecondary)
 
+                if let username = profile.username, !username.isEmpty {
+                    Text("@\(username)")
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                }
+
                 Text(profile.bio)
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
@@ -120,7 +250,31 @@ struct PublicProfileView: View {
 
                 HStack(spacing: 8) {
                     profileChip(icon: "📍", label: profile.city)
-                    profileChip(icon: "🧭", label: "Collaborations welcome")
+                    if let followersCount = profile.followersCount {
+                        profileChip(icon: "👥", label: "\(followersCount) followers")
+                    }
+                    if let hostRating = profile.hostRating {
+                        profileChip(icon: "⭐", label: String(format: "%.1f host", hostRating))
+                    }
+                }
+
+                if canToggleFollow {
+                    Button {
+                        Task {
+                            await toggleFollow()
+                        }
+                    } label: {
+                        Text(isTogglingFollow ? "Updating..." : (profile.isFollowing ? "Following" : "Follow"))
+                            .font(FriendZoneTheme.Typography.system(13, weight: .bold))
+                            .foregroundColor(profile.isFollowing ? FriendZoneTheme.Colors.textPrimary : .white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(profile.isFollowing ? Color.black.opacity(0.05) : FriendZoneTheme.Colors.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isTogglingFollow)
+                    .padding(.top, 6)
                 }
             }
         }
@@ -130,6 +284,64 @@ struct PublicProfileView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
+        }
+    }
+
+    private var canToggleFollow: Bool {
+        if let userID = profile.userID, let currentUserID = session.currentUser?.id {
+            return userID != currentUserID
+        }
+        return false
+    }
+
+    @MainActor
+    private func hydrateRemoteProfileIfNeeded() async {
+        guard let userID = profile.userID else { return }
+        isLoadingRemoteProfile = true
+        defer { isLoadingRemoteProfile = false }
+        do {
+            let publicProfile = try await session.fetchPublicProfile(userID: userID)
+            profile = PublicProfileData(publicProfile: publicProfile)
+            loadErrorMessage = nil
+        } catch {
+            loadErrorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func toggleFollow() async {
+        guard let userID = profile.userID else { return }
+        isTogglingFollow = true
+        defer { isTogglingFollow = false }
+        do {
+            let isFollowing = try await session.toggleFollow(userID: userID)
+            profile.isFollowing = isFollowing
+            if let count = profile.followersCount {
+                profile.followersCount = max(0, count + (isFollowing ? 1 : -1))
+            }
+            loadErrorMessage = nil
+        } catch {
+            loadErrorMessage = error.localizedDescription
+        }
+    }
+
+    @ViewBuilder
+    private var avatarContent: some View {
+        if let avatarURL = profile.avatarURL, let url = URL(string: avatarURL) {
+            AsyncImage(url: url) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
+            } placeholder: {
+                Text(profile.initial)
+                    .font(FriendZoneTheme.Typography.system(20, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .clipShape(Circle())
+        } else {
+            Text(profile.initial)
+                .font(FriendZoneTheme.Typography.system(20, weight: .bold))
+                .foregroundColor(.white)
         }
     }
 

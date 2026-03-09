@@ -1,8 +1,10 @@
 import SwiftUI
 import Combine
 import UIKit
+import PhotosUI
 
 struct HangoutsView: View {
+    @EnvironmentObject private var session: AppSessionStore
     var usesExternalBackdrop: Bool = false
     var onRequestOpenMaps: (() -> Void)? = nil
 
@@ -25,6 +27,8 @@ struct HangoutsView: View {
     @State private var isShowingHangoutMenu = false
     @State private var isShowingReportAcknowledgement = false
     @State private var animateDayDots = false
+    @State private var backendEvents: [DiscoveryEventItem] = []
+    @State private var backendOffers: [DiscoveryOfferItem] = []
     @StateObject private var creatorContext = SettingsCreatorContextViewModel()
 
     private let minuteTicker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -63,6 +67,7 @@ struct HangoutsView: View {
         let subtitle: String
         let symbol: String
         let palette: [Color]
+        var imageURL: String? = nil
     }
 
     struct DiscoveryOfferItem: Identifiable {
@@ -231,6 +236,7 @@ struct HangoutsView: View {
         .task {
             await viewModel.loadIfNeeded()
             await creatorContext.loadIfNeeded()
+            await loadDiscoveryContent()
         }
         .onReceive(minuteTicker) { value in
             now = value
@@ -310,7 +316,7 @@ struct HangoutsView: View {
                     },
                     onShowCreatorProfile: {
                         publicProfileRequest = PublicProfileRequest(
-                            profile: event.creatorProfile,
+                            profile: PublicProfileData(draft: event.creatorProfile),
                             leadingText: "Event ",
                             highlightText: "creator",
                             subtitle: nil
@@ -339,7 +345,7 @@ struct HangoutsView: View {
                     },
                     onShowVenueProfile: {
                         publicProfileRequest = PublicProfileRequest(
-                            profile: offer.venueProfile,
+                            profile: PublicProfileData(draft: offer.venueProfile),
                             leadingText: "Venue ",
                             highlightText: "profile",
                             subtitle: nil
@@ -409,6 +415,108 @@ struct HangoutsView: View {
                 }
         )
         .ignoresSafeArea(.container, edges: [.bottom])
+    }
+
+    private var discoveryEvents: [DiscoveryEventItem] {
+        backendEvents.isEmpty ? mockEvents : backendEvents
+    }
+
+    private var discoveryOffers: [DiscoveryOfferItem] {
+        backendOffers.isEmpty ? mockOffers : backendOffers
+    }
+
+    private func loadDiscoveryContent() async {
+        async let eventsLoad: Void = loadEvents()
+        async let offersLoad: Void = loadOffers()
+        _ = await (eventsLoad, offersLoad)
+    }
+
+    private func loadEvents() async {
+        do {
+            let items = try await session.fetchUpcomingEvents()
+            let mapped = items.compactMap(mapDiscoveryEvent)
+            await MainActor.run {
+                backendEvents = mapped.sorted { $0.startAt < $1.startAt }
+            }
+        } catch {
+            // Keep mocks as fallback.
+        }
+    }
+
+    private func loadOffers() async {
+        do {
+            let items = try await session.fetchActiveOffers()
+            let mapped = items.compactMap(mapDiscoveryOffer)
+            await MainActor.run {
+                backendOffers = mapped.sorted { $0.validUntil < $1.validUntil }
+            }
+        } catch {
+            // Keep mocks as fallback.
+        }
+    }
+
+    private func mapDiscoveryEvent(_ item: DiscoveryEventFeedItem) -> DiscoveryEventItem? {
+        guard let startAt = parseServerDate(item.startAt) else { return nil }
+        let venue = item.venueName ?? item.city ?? "Event venue"
+        let displayName = item.creatorDisplayName ?? item.creatorUsername ?? "Event creator"
+        return DiscoveryEventItem(
+            id: item.id,
+            title: item.title,
+            venue: venue,
+            startAt: startAt,
+            groups: max(item.hangoutsCount ?? 0, 1),
+            category: item.category ?? "Event",
+            creatorProfile: CreatorProfileDraft(
+                userID: item.creator,
+                displayName: displayName,
+                username: item.creatorUsername,
+                bio: "\(venue) · \(item.category ?? "Event")",
+                instagram: item.creatorUsername ?? "",
+                website: "",
+                city: item.city ?? "Berlin",
+                avatarURL: item.creatorAvatarUrl
+            ),
+            photoMoments: item.primaryImageUrl == nil ? [] : [
+                EventPhotoMoment(
+                    id: item.id,
+                    title: "Event moment",
+                    subtitle: venue,
+                    symbol: "photo",
+                    palette: [Color(hex: "#171717"), Color(hex: "#525252"), Color(hex: "#A3A3A3")]
+                )
+            ]
+        )
+    }
+
+    private func mapDiscoveryOffer(_ item: DiscoveryOfferFeedItem) -> DiscoveryOfferItem? {
+        guard let validUntil = parseServerDate(item.validUntil) else { return nil }
+        return DiscoveryOfferItem(
+            id: item.id,
+            title: item.title,
+            venue: item.venueName ?? "Venue",
+            perk: item.perk,
+            validUntil: validUntil,
+            spotsLeft: max(item.spotsRemaining ?? 0, 0),
+            venueProfile: CreatorProfileDraft(
+                userID: item.owner,
+                displayName: item.venueName ?? (item.ownerUsername ?? "Venue"),
+                username: item.ownerUsername,
+                bio: item.description ?? "Venue offer available through FriendZone.",
+                instagram: item.ownerUsername ?? "",
+                website: "",
+                city: "Berlin",
+            )
+        )
+    }
+
+    private func parseServerDate(_ raw: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) {
+            return date
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: raw)
     }
 
     private var backdrop: some View {
@@ -797,8 +905,8 @@ struct HangoutsView: View {
     }
 
     private var eventsContent: some View {
-        let dayItems = mockEvents.filter { calendar.isDate($0.startAt, inSameDayAs: viewModel.selectedDay) }
-        let listItems = dayItems.isEmpty ? Array(mockEvents.prefix(5)) : dayItems
+        let dayItems = discoveryEvents.filter { calendar.isDate($0.startAt, inSameDayAs: viewModel.selectedDay) }
+        let listItems = dayItems.isEmpty ? Array(discoveryEvents.prefix(5)) : dayItems
 
         return ScrollView(showsIndicators: false) {
             LazyVStack(spacing: FriendZoneTheme.Spacing.sm) {
@@ -818,8 +926,8 @@ struct HangoutsView: View {
     }
 
     private var offersContent: some View {
-        let dayItems = mockOffers.filter { calendar.isDate($0.validUntil, inSameDayAs: viewModel.selectedDay) }
-        let listItems = dayItems.isEmpty ? mockOffers : dayItems
+        let dayItems = discoveryOffers.filter { calendar.isDate($0.validUntil, inSameDayAs: viewModel.selectedDay) }
+        let listItems = dayItems.isEmpty ? discoveryOffers : dayItems
 
         return ScrollView(showsIndicators: false) {
             LazyVStack(spacing: FriendZoneTheme.Spacing.sm) {
@@ -1064,8 +1172,8 @@ struct HangoutsView: View {
             let selectedDayItems = viewModel.hangouts(on: viewModel.selectedDay)
             return (selectedDayItems.isEmpty && !viewModel.futureHangouts.isEmpty) ? "UPCOMING HANGOUTS" : "HAPPENING TODAY"
         case .events:
-            let selectedDayItems = mockEvents.filter { calendar.isDate($0.startAt, inSameDayAs: viewModel.selectedDay) }
-            return (selectedDayItems.isEmpty && !mockEvents.isEmpty) ? "UPCOMING EVENTS" : "EVENTS TODAY"
+            let selectedDayItems = discoveryEvents.filter { calendar.isDate($0.startAt, inSameDayAs: viewModel.selectedDay) }
+            return (selectedDayItems.isEmpty && !discoveryEvents.isEmpty) ? "UPCOMING EVENTS" : "EVENTS TODAY"
         case .offers:
             return "OFFERS"
         }
@@ -1076,9 +1184,9 @@ struct HangoutsView: View {
         case .hangouts:
             return viewModel.hasHangouts(on: day)
         case .events:
-            return mockEvents.contains(where: { calendar.isDate($0.startAt, inSameDayAs: day) })
+            return discoveryEvents.contains(where: { calendar.isDate($0.startAt, inSameDayAs: day) })
         case .offers:
-            return mockOffers.contains(where: { calendar.isDate($0.validUntil, inSameDayAs: day) })
+            return discoveryOffers.contains(where: { calendar.isDate($0.validUntil, inSameDayAs: day) })
         }
     }
 
@@ -1114,6 +1222,7 @@ struct HangoutsView: View {
 }
 
 private struct NativeEventDetailView: View {
+    @EnvironmentObject private var session: AppSessionStore
     let event: HangoutsView.DiscoveryEventItem
     let creatorProfile: CreatorProfileDraft
     let onClose: () -> Void
@@ -1122,6 +1231,7 @@ private struct NativeEventDetailView: View {
     let onShowCreatorProfile: () -> Void
     @State private var isShowingTicketPreview = false
     @State private var selectedHeroPage = 0
+    @State private var detail: EventDetailFeedItem?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -1136,11 +1246,11 @@ private struct NativeEventDetailView: View {
                     creatorSection
                     infoBlock(
                         title: "ABOUT THIS EVENT",
-                        body: "A curated \(event.category.lowercased()) experience at \(event.venue), designed for people who want to meet through shared vibes and real conversation."
+                        body: eventAboutText
                     )
                     infoBlock(
                         title: "WHAT TO EXPECT",
-                        body: "Live social energy, curated spaces, and active mini-groups. You can join nearby hangouts related to this event before and after it starts."
+                        body: eventExpectText
                     )
                     DetailActionsRow(
                         onJoinSolo: onJoinSolo,
@@ -1158,6 +1268,9 @@ private struct NativeEventDetailView: View {
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("Event")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadDetail()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { onClose() }
@@ -1182,7 +1295,7 @@ private struct NativeEventDetailView: View {
                 .padding(.horizontal, 1)
                 .tag(0)
 
-                ForEach(Array(event.photoMoments.enumerated()), id: \.element.id) { index, moment in
+                ForEach(Array(heroMoments.enumerated()), id: \.element.id) { index, moment in
                     EventPhotoTicketView(event: event, moment: moment)
                         .tag(index + 1)
                 }
@@ -1190,7 +1303,7 @@ private struct NativeEventDetailView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 214)
 
-            if !event.photoMoments.isEmpty {
+            if !heroMoments.isEmpty {
                 HStack(spacing: 8) {
                     Text(selectedHeroPage == 0 ? "Ticket" : "Event photos")
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
@@ -1203,7 +1316,7 @@ private struct NativeEventDetailView: View {
                         .foregroundColor(FriendZoneTheme.Colors.primary)
 
                     HStack(spacing: 5) {
-                        ForEach(0..<(event.photoMoments.count + 1), id: \.self) { page in
+                        ForEach(0..<(heroMoments.count + 1), id: \.self) { page in
                             Capsule()
                                 .fill(page == selectedHeroPage ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.borderSubtle)
                                 .frame(width: page == selectedHeroPage ? 18 : 6, height: 6)
@@ -1213,6 +1326,30 @@ private struct NativeEventDetailView: View {
                 .padding(.horizontal, 4)
             }
         }
+    }
+
+    private var heroMoments: [HangoutsView.EventPhotoMoment] {
+        if let detail {
+            let detailMoments = detail.photos
+                .sorted {
+                    ($0.sortOrder ?? Int.max, $0.id) < ($1.sortOrder ?? Int.max, $1.id)
+                }
+                .filter { ($0.imageUrl ?? "").isEmpty == false }
+                .map { photo in
+                    HangoutsView.EventPhotoMoment(
+                        id: photo.id,
+                        title: detail.title,
+                        subtitle: detail.venueName ?? event.venue,
+                        symbol: "photo",
+                        palette: [Color(hex: "#171717"), Color(hex: "#404040"), Color(hex: "#A3A3A3")],
+                        imageURL: photo.imageUrl
+                    )
+                }
+            if !detailMoments.isEmpty {
+                return detailMoments
+            }
+        }
+        return event.photoMoments
     }
 
     private var heroCard: some View {
@@ -1274,7 +1411,7 @@ private struct NativeEventDetailView: View {
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                         .tracking(0.8)
-                    Text(creatorProfile.displayName)
+                    Text(detail?.organizerName ?? detail?.creatorDisplayName ?? creatorProfile.displayName)
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                 }
@@ -1346,6 +1483,43 @@ private struct NativeEventDetailView: View {
         formatter.dateFormat = "h:mm a"
         return formatter.string(from: value)
     }
+
+    private var eventAboutText: String {
+        if let description = detail?.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+            return description
+        }
+        return "A curated \(event.category.lowercased()) experience at \(event.venue), designed for people who want to meet through shared vibes and real conversation."
+    }
+
+    private var eventExpectText: String {
+        var parts: [String] = []
+        if let address = detail?.venueAddress, !address.isEmpty {
+            parts.append("Venue: \(address).")
+        }
+        if let participants = detail?.totalParticipants {
+            parts.append("\(participants) people already connected around this event.")
+        }
+        if let spots = detail?.spotsRemaining {
+            parts.append(spots > 0 ? "\(spots) spots still available for solo joins and side hangouts." : "Capacity is currently full.")
+        }
+        if let tags = detail?.tags, !tags.isEmpty {
+            parts.append("Tags: \(tags.prefix(4).joined(separator: ", ")).")
+        }
+        if parts.isEmpty {
+            return "Live social energy, curated spaces, and active mini-groups. You can join nearby hangouts related to this event before and after it starts."
+        }
+        return parts.joined(separator: " ")
+    }
+
+    @MainActor
+    private func loadDetail() async {
+        guard detail == nil else { return }
+        do {
+            detail = try await session.fetchEventDetail(id: event.id)
+        } catch {
+            // Keep minimal discovery payload as fallback.
+        }
+    }
 }
 
 private struct EventPhotoTicketView: View {
@@ -1354,11 +1528,7 @@ private struct EventPhotoTicketView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            LinearGradient(
-                colors: moment.palette,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            backgroundLayer
 
             Circle()
                 .fill(Color.white.opacity(0.18))
@@ -1410,6 +1580,32 @@ private struct EventPhotoTicketView: View {
                 .mask(TicketSilhouetteMask())
         }
         .friendZoneShadow(FriendZoneTheme.Shadows.sm)
+    }
+
+    @ViewBuilder
+    private var backgroundLayer: some View {
+        if let imageURL = moment.imageURL, let url = URL(string: imageURL) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case let .success(image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    LinearGradient(
+                        colors: moment.palette,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+        } else {
+            LinearGradient(
+                colors: moment.palette,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
     }
 }
 
@@ -1534,6 +1730,7 @@ struct DiscoveryOfferVoucherCardView: View {
 }
 
 private struct NativeOfferDetailView: View {
+    @EnvironmentObject private var session: AppSessionStore
     let offer: HangoutsView.DiscoveryOfferItem
     let venueProfile: CreatorProfileDraft
     let onClose: () -> Void
@@ -1541,6 +1738,7 @@ private struct NativeOfferDetailView: View {
     let onCreateHangout: () -> Void
     let onShowVenueProfile: () -> Void
     @State private var isShowingTicketPreview = false
+    @State private var detail: OfferDetailFeedItem?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -1555,15 +1753,15 @@ private struct NativeOfferDetailView: View {
                     venueSection
                     infoBlock(
                         title: "PERK",
-                        body: offer.perk
+                        body: detail?.perk ?? offer.perk
                     )
                     infoBlock(
                         title: "HOW TO REDEEM",
-                        body: "Show this voucher code at \(offer.venue). Subject to availability and venue terms."
+                        body: redeemText
                     )
                     infoBlock(
                         title: "TERMS",
-                        body: "One redeem per person. Non-transferable. Valid until \(eventDateLabel(offer.validUntil)) at \(eventTimeLabel(offer.validUntil))."
+                        body: termsText
                     )
                     DetailActionsRow(
                         onJoinSolo: onJoinSolo,
@@ -1581,6 +1779,9 @@ private struct NativeOfferDetailView: View {
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("Offer")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadDetail()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { onClose() }
@@ -1619,7 +1820,7 @@ private struct NativeOfferDetailView: View {
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                         .tracking(0.8)
-                    Text(venueProfile.displayName)
+                    Text(detail?.venueName ?? detail?.venueDetail?.name ?? venueProfile.displayName)
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                 }
@@ -1691,6 +1892,31 @@ private struct NativeOfferDetailView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
         return formatter.string(from: value)
+    }
+
+    private var redeemText: String {
+        let venueName = detail?.venueName ?? detail?.venueDetail?.name ?? offer.venue
+        if let description = detail?.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+            return "\(description) Redeem directly at \(venueName)."
+        }
+        return "Show this voucher code at \(venueName). Subject to availability and venue terms."
+    }
+
+    private var termsText: String {
+        if let terms = detail?.terms?.trimmingCharacters(in: .whitespacesAndNewlines), !terms.isEmpty {
+            return terms
+        }
+        return "One redeem per person. Non-transferable. Valid until \(eventDateLabel(offer.validUntil)) at \(eventTimeLabel(offer.validUntil))."
+    }
+
+    @MainActor
+    private func loadDetail() async {
+        guard detail == nil else { return }
+        do {
+            detail = try await session.fetchOfferDetail(id: offer.id)
+        } catch {
+            // Keep minimal discovery payload as fallback.
+        }
     }
 }
 
@@ -2171,7 +2397,7 @@ private struct HangoutCardSkeleton: View {
 
 private struct PublicProfileRequest: Identifiable {
     let id = UUID()
-    let profile: CreatorProfileDraft
+    let profile: PublicProfileData
     let leadingText: String
     let highlightText: String
     let subtitle: String?
@@ -2936,9 +3162,10 @@ private struct NotificationItem: Identifiable {
 private struct NativeProfileHubView: View {
     let onClose: () -> Void
 
-    private let vibes = [("☕", "Chill"), ("🍸", "Drinks"), ("💪", "Active"), ("🧠", "Deep Talk")]
-    private let interests = ["Coffee", "Startups", "Music", "Food", "Photography", "Walking"]
-    private let languages = ["EN", "ES", "DE"]
+    @EnvironmentObject private var session: AppSessionStore
+    @State private var selectedAvatarItem: PhotosPickerItem?
+    @State private var isUploadingAvatar = false
+    @State private var avatarUploadError: String?
     private let moments = [Color(hex: "#6D28D9"), Color(hex: "#EC4899"), Color(hex: "#0EA5E9"), Color(hex: "#F97316"), Color(hex: "#10B981"), Color(hex: "#111827")]
 
     var body: some View {
@@ -2953,9 +3180,9 @@ private struct NativeProfileHubView: View {
                     profileCard
                     statsGrid
                     quickActions
-                    chipsSection(title: "VIBES", items: vibes.map { "\($0.0) \($0.1)" })
-                    interestChipsSection(title: "INTERESTS", items: interests)
-                    chipsSection(title: "LANGUAGES", items: languages)
+                    chipsSection(title: "VIBES", items: profileVibes)
+                    interestChipsSection(title: "INTERESTS", items: profileInterests)
+                    chipsSection(title: "LANGUAGES", items: profileLanguages)
                     momentsSection
                 }
                 .padding(.horizontal, 16)
@@ -2972,46 +3199,45 @@ private struct NativeProfileHubView: View {
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
             }
         }
+        .onChange(of: selectedAvatarItem) { item in
+            guard let item else { return }
+            Task {
+                await uploadAvatar(from: item)
+            }
+        }
     }
 
     private var profileCard: some View {
         VStack(spacing: 10) {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 92, height: 92)
-                .overlay {
-                    Text("S")
-                        .font(FriendZoneTheme.Typography.system(34, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                }
-                .overlay(alignment: .bottomTrailing) {
+            PhotosPicker(selection: $selectedAvatarItem, matching: .images, photoLibrary: .shared()) {
+                ZStack(alignment: .bottomTrailing) {
+                    avatarCircle
+
                     Circle()
                         .fill(FriendZoneTheme.Colors.surface)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 28, height: 28)
                         .overlay {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 14, weight: .bold))
+                            Image(systemName: isUploadingAvatar ? "arrow.triangle.2.circlepath" : "camera.fill")
+                                .font(.system(size: 13, weight: .bold))
                                 .foregroundColor(FriendZoneTheme.Colors.primary)
                         }
                 }
+            }
+            .buttonStyle(.plain)
 
-            Text("Safaera Labs")
+            Text(displayName)
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
                 .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
-            Text("@safaeralabs")
+            Text("@\(username)")
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
 
             HStack(spacing: 8) {
-                profileMetaChip("📍 Berlin")
-                profileMetaChip("🎂 25")
+                profileMetaChip("📍 \(cityLabel)")
+                if let completionScore = session.currentProfile?.completionScore {
+                    profileMetaChip("✨ \(completionScore)%")
+                }
             }
 
             HStack(spacing: 8) {
@@ -3048,11 +3274,18 @@ private struct NativeProfileHubView: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Building FriendZone iOS native experience.")
+            Text(profileBio)
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 4)
+
+            if let avatarUploadError {
+                Text(avatarUploadError)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.error)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(16)
         .background(FriendZoneTheme.Colors.surface)
@@ -3070,18 +3303,18 @@ private struct NativeProfileHubView: View {
             NavigationLink {
                 NativePlansHubView(onClose: onClose)
             } label: {
-                profileStatCard("🎉", "37", "ATTENDED", interactive: true)
+                profileStatCard("🎉", attendedCount, "ATTENDED", interactive: true)
             }
             .buttonStyle(.plain)
 
             NavigationLink {
                 NativePlansHubView(onClose: onClose)
             } label: {
-                profileStatCard("🎯", "12", "HOSTED", interactive: true)
+                profileStatCard("🎯", hostedCount, "HOSTED", interactive: true)
             }
             .buttonStyle(.plain)
 
-            profileStatCard("⭐", "4.9", "RATING", interactive: false)
+            profileStatCard("⭐", ratingValue, "RATING", interactive: false)
 
             NavigationLink {
                 NativePlaceholderHubView(
@@ -3089,7 +3322,7 @@ private struct NativeProfileHubView: View {
                     message: "Your followers list will appear here."
                 )
             } label: {
-                profileStatCard("👥", "128", "FOLLOWERS", interactive: true)
+                profileStatCard("👥", followersCount, "FOLLOWERS", interactive: true)
             }
             .buttonStyle(.plain)
 
@@ -3099,7 +3332,7 @@ private struct NativeProfileHubView: View {
                     message: "Accounts you follow will appear here."
                 )
             } label: {
-                profileStatCard("🤝", "204", "FOLLOWING", interactive: true)
+                profileStatCard("🤝", followingCount, "FOLLOWING", interactive: true)
             }
             .buttonStyle(.plain)
         }
@@ -3310,12 +3543,137 @@ private struct NativeProfileHubView: View {
             }
         }
     }
+
+    private var displayName: String {
+        let user = session.currentUser
+        let parts = [user?.firstName, user?.lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? (user?.username.capitalized ?? "FriendZone") : parts.joined(separator: " ")
+    }
+
+    private var username: String {
+        session.currentUser?.username ?? "friendzone"
+    }
+
+    private var cityLabel: String {
+        session.currentProfile?.cityName ?? "City not set"
+    }
+
+    private var profileBio: String {
+        session.currentProfile?.bio?.isEmpty == false ? session.currentProfile?.bio ?? "" : "Complete your profile to help others understand your vibe."
+    }
+
+    private var profileInitial: String {
+        String(displayName.trimmingCharacters(in: .whitespacesAndNewlines).first ?? Character("F")).uppercased()
+    }
+
+    private var profileVibes: [String] {
+        let values = session.currentProfile?.vibes ?? []
+        return values.isEmpty ? ["☕ Chill", "✨ Curious"] : values.map { "\(emojiForVibe($0)) \($0.capitalized)" }
+    }
+
+    private var profileInterests: [String] {
+        let values = session.currentProfile?.interests ?? []
+        return values.isEmpty ? ["Coffee", "Music", "Walking"] : values.map(\.capitalized)
+    }
+
+    private var profileLanguages: [String] {
+        let values = session.currentProfile?.spokenLanguages ?? []
+        return values.isEmpty ? ["EN"] : values.map { $0.uppercased() }
+    }
+
+    private var attendedCount: String {
+        "\(session.currentProfile?.hangoutsAttended ?? 0)"
+    }
+
+    private var hostedCount: String {
+        "\(session.currentProfile?.hangoutsHosted ?? 0)"
+    }
+
+    private var followersCount: String {
+        "\(session.currentProfile?.followersCount ?? 0)"
+    }
+
+    private var followingCount: String {
+        "\(session.currentProfile?.followingCount ?? 0)"
+    }
+
+    private var ratingValue: String {
+        guard let rating = session.currentProfile?.hostRating else { return "-" }
+        return String(format: "%.1f", rating)
+    }
+
+    private func emojiForVibe(_ value: String) -> String {
+        switch value.lowercased() {
+        case "chill": return "☕"
+        case "drinks": return "🍸"
+        case "active", "sporty": return "💪"
+        case "deep talk", "deeptalk", "deep_talk": return "🧠"
+        case "creative": return "🎨"
+        default: return "✨"
+        }
+    }
+
+    @ViewBuilder
+    private var avatarCircle: some View {
+        if let avatarURL = session.currentProfile?.avatarImageUrl, let url = URL(string: avatarURL) {
+            AsyncImage(url: url) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
+            } placeholder: {
+                avatarPlaceholder
+            }
+            .frame(width: 92, height: 92)
+            .clipShape(Circle())
+        } else {
+            avatarPlaceholder
+        }
+    }
+
+    private var avatarPlaceholder: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 92, height: 92)
+            .overlay {
+                Text(profileInitial)
+                    .font(FriendZoneTheme.Typography.system(34, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
+            }
+    }
+
+    @MainActor
+    private func uploadAvatar(from item: PhotosPickerItem) async {
+        avatarUploadError = nil
+        isUploadingAvatar = true
+        defer { isUploadingAvatar = false }
+
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpegData = image.jpegData(compressionQuality: 0.82) else {
+            avatarUploadError = "Could not process the selected image."
+            return
+        }
+
+        do {
+            try await session.uploadAvatar(jpegData: jpegData)
+        } catch {
+            avatarUploadError = error.localizedDescription
+        }
+    }
 }
 
 private struct NativeSettingsHubView: View {
     let onClose: () -> Void
 
-    @AppStorage("fz.auth.isAuthenticated") private var isAuthenticated = true
+    @EnvironmentObject private var session: AppSessionStore
     @State private var pushNotifications = true
     @State private var locationSharing = true
     @State private var showDistance = true
@@ -3528,7 +3886,9 @@ private struct NativeSettingsHubView: View {
                     VStack(spacing: 10) {
                         Button {
                             onClose()
-                            isAuthenticated = false
+                            Task {
+                                await session.logout()
+                            }
                         } label: {
                             Text("Log out")
                                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
