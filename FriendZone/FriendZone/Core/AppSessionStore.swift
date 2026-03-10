@@ -275,6 +275,72 @@ private struct HangoutMessageCreateRequest: Encodable {
     let message: String
 }
 
+struct CreateHangoutResponse: Decodable, Equatable {
+    let id: Int
+    let sourceType: String
+    let title: String
+    let description: String
+    let cityName: String
+    let locationName: String?
+    let startAt: String
+    let endAt: String
+    let capacity: Int
+    let approvedParticipantsCount: Int?
+    let isLive: Bool
+    let isMicro: Bool
+    let hostUsername: String
+}
+
+private struct CreateHangoutPayload: Encodable {
+    let languages: [String]
+    let title: String
+    let description: String
+    let cityPlaceId: String
+    let cityName: String
+    let locationName: String
+    let locationAddress: String
+    let lat: Double?
+    let lng: Double?
+    let startAt: String?
+    let endAt: String?
+    let capacity: Int?
+    let isCapacityUnlimited: Bool
+    let isTimeFlexible: Bool
+    let visibility: String
+    let allowWaitlist: Bool
+    let vibe: String
+    let isMicro: Bool
+    let isLive: Bool
+    let genderPreference: String
+    let audienceTags: [String]
+    let sourceEventId: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case languages
+        case title
+        case description
+        case cityPlaceId = "city_place_id"
+        case cityName = "city_name"
+        case locationName = "location_name"
+        case locationAddress = "location_address"
+        case lat
+        case lng
+        case startAt = "start_at"
+        case endAt = "end_at"
+        case capacity
+        case isCapacityUnlimited = "is_capacity_unlimited"
+        case isTimeFlexible = "is_time_flexible"
+        case visibility
+        case allowWaitlist = "allow_waitlist"
+        case vibe
+        case isMicro = "is_micro"
+        case isLive = "is_live"
+        case genderPreference = "gender_preference"
+        case audienceTags = "audience_tags"
+        case sourceEventId = "source_event_id"
+    }
+}
+
 private struct AuthTokenPair: Codable {
     let access: String
     let refresh: String
@@ -544,6 +610,20 @@ final class AppSessionStore: ObservableObject {
         } as EmptyResponse
     }
 
+    func createHangout(from draft: CreateHangoutDraft) async throws -> CreateHangoutResponse {
+        if draft.sourceType == .offer {
+            throw AppSessionError.httpStatus(400, "Offer-sourced hangouts are not exposed by the backend create endpoint yet.")
+        }
+        if draft.visibility == .inviteOnly {
+            throw AppSessionError.httpStatus(400, "Private hangouts are not fully supported by the current backend create serializer yet.")
+        }
+
+        let payload = makeCreateHangoutPayload(from: draft)
+        return try await authorizedCall { [self] accessToken in
+            try await discoverAPI.createHangout(payload: payload, coverJPEGData: draft.coverImageData, accessToken: accessToken)
+        }
+    }
+
     func approveJoinRequest(hangoutID: Int, requestID: Int) async throws -> HangoutFeedItem {
         try await authorizedCall { [self] accessToken in
             try await discoverAPI.approveJoinRequest(hangoutID: hangoutID, requestID: requestID, accessToken: accessToken)
@@ -775,6 +855,68 @@ final class AppSessionStore: ObservableObject {
         }
 
         return (firstName, parts.dropFirst().joined(separator: " "))
+    }
+
+    private func makeCreateHangoutPayload(from draft: CreateHangoutDraft) -> CreateHangoutPayload {
+        let startAt = draft.startAt
+        let endAt = draft.startAt.addingTimeInterval(Double(max(1, draft.durationHours)) * 3600)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+
+        return CreateHangoutPayload(
+            languages: draft.languages.compactMap(languageCode(for:)),
+            title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: draft.description.trimmingCharacters(in: .whitespacesAndNewlines),
+            cityPlaceId: draft.cityPlaceID.trimmingCharacters(in: .whitespacesAndNewlines),
+            cityName: draft.cityName.trimmingCharacters(in: .whitespacesAndNewlines),
+            locationName: draft.locationName.trimmingCharacters(in: .whitespacesAndNewlines),
+            locationAddress: draft.locationAddress.trimmingCharacters(in: .whitespacesAndNewlines),
+            lat: draft.latitude,
+            lng: draft.longitude,
+            startAt: draft.sourceType == .event ? nil : iso.string(from: startAt),
+            endAt: draft.sourceType == .event ? nil : iso.string(from: endAt),
+            capacity: draft.isCapacityUnlimited ? nil : draft.capacity,
+            isCapacityUnlimited: draft.isCapacityUnlimited,
+            isTimeFlexible: draft.isTimeFlexible,
+            visibility: draft.visibility == .inviteOnly ? "invite_only" : "public",
+            allowWaitlist: true,
+            vibe: backendVibe(for: draft.vibe),
+            isMicro: draft.isMicro,
+            isLive: draft.isLive,
+            genderPreference: backendGenderPreference(for: draft.genderPreference),
+            audienceTags: draft.audienceTags,
+            sourceEventId: draft.sourceType == .event ? draft.sourceEventID : nil
+        )
+    }
+
+    private func languageCode(for label: String) -> String? {
+        switch label.lowercased() {
+        case "english": return "en"
+        case "spanish": return "es"
+        case "german": return "de"
+        case "french": return "fr"
+        case "italian": return "it"
+        default: return nil
+        }
+    }
+
+    private func backendVibe(for vibe: HangoutVibe) -> String {
+        switch vibe {
+        case .chill: return "chill"
+        case .drinks: return "drinks"
+        case .deepTalk: return "deep talks"
+        case .activity: return "creative"
+        case .foodie: return "food"
+        case .sporty: return "sporty"
+        }
+    }
+
+    private func backendGenderPreference(for value: HangoutGenderPreference) -> String {
+        switch value {
+        case .any: return "any"
+        case .womenOnly: return "women_only"
+        case .menOnly: return "men_only"
+        }
     }
 }
 
@@ -1231,6 +1373,37 @@ private final class DiscoverAPIService {
         return try decode(HangoutMessageFeedItem.self, from: data)
     }
 
+    func createHangout(payload: CreateHangoutPayload, coverJPEGData: Data?, accessToken: String) async throws -> CreateHangoutResponse {
+        if let coverJPEGData {
+            let boundary = "Boundary-\(UUID().uuidString)"
+            var request = URLRequest(url: AppConfig.url(for: "/api/hangouts/"))
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.httpBody = multipartHangoutBody(payload: payload, jpegData: coverJPEGData, boundary: boundary)
+
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw AppSessionError.invalidResponse
+            }
+
+            switch httpResponse.statusCode {
+            case 200 ..< 300:
+                return try decode(CreateHangoutResponse.self, from: data)
+            case 401:
+                throw AppSessionError.unauthorized
+            default:
+                let message = decodeServerMessage(data: data) ?? "Unexpected error"
+                throw AppSessionError.httpStatus(httpResponse.statusCode, message)
+            }
+        }
+
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/hangouts/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(CreateHangoutResponse.self, from: data)
+    }
+
     private func request(path: String, method: String = "GET", body: Data? = nil, accessToken: String) async throws -> Data {
         var request = URLRequest(url: AppConfig.url(for: path))
         request.httpMethod = method
@@ -1262,5 +1435,66 @@ private final class DiscoverAPIService {
         } catch {
             throw AppSessionError.decodingFailed
         }
+    }
+
+    private func multipartHangoutBody(payload: CreateHangoutPayload, jpegData: Data, boundary: String) -> Data {
+        var body = Data()
+
+        if
+            let encoded = try? JSONEncoder().encode(payload),
+            let object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        {
+            for (key, value) in object {
+                switch value {
+                case let value as String:
+                    appendMultipartField(name: key, value: value, to: &body, boundary: boundary)
+                case let value as Bool:
+                    appendMultipartField(name: key, value: value ? "true" : "false", to: &body, boundary: boundary)
+                case let value as Int:
+                    appendMultipartField(name: key, value: String(value), to: &body, boundary: boundary)
+                case let value as Double:
+                    appendMultipartField(name: key, value: String(value), to: &body, boundary: boundary)
+                case let values as [String]:
+                    for value in values {
+                        appendMultipartField(name: key, value: value, to: &body, boundary: boundary)
+                    }
+                default:
+                    break
+                }
+            }
+        }
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"cover_image\"; filename=\"cover.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(jpegData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
+    }
+
+    private func appendMultipartField(name: String, value: String, to body: inout Data, boundary: String) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(value)\r\n".data(using: .utf8)!)
+    }
+
+    private func decodeServerMessage(data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let detail = object["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+        if let error = object["error"] as? String, !error.isEmpty {
+            return error
+        }
+        if let nonFieldErrors = object["non_field_errors"] as? [String], !nonFieldErrors.isEmpty {
+            return nonFieldErrors.joined(separator: ", ")
+        }
+        if let firstArray = object.values.first(where: { $0 is [String] }) as? [String], !firstArray.isEmpty {
+            return firstArray.joined(separator: ", ")
+        }
+        return nil
     }
 }

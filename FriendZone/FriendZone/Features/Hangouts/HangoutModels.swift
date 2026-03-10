@@ -179,6 +179,8 @@ struct CreateHangoutDraft {
     var isLive: Bool = false
     var sourceType: HangoutSourceType = .hangout
     var sourceLabel: String? = nil
+    var sourceEventID: Int? = nil
+    var sourceOfferID: Int? = nil
     var coverImageData: Data? = nil
     var coverSeed: Int = 0
 }

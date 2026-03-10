@@ -5,7 +5,7 @@ import UIKit
 
 struct CreateHangoutView: View {
     let onCancel: () -> Void
-    let onCreate: (CreateHangoutDraft) -> Void
+    let onCreate: (CreateHangoutDraft) async throws -> Void
 
     @State private var draft: CreateHangoutDraft
     @State private var currentStep = 0
@@ -90,7 +90,7 @@ struct CreateHangoutView: View {
 
     init(
         onCancel: @escaping () -> Void,
-        onCreate: @escaping (CreateHangoutDraft) -> Void,
+        onCreate: @escaping (CreateHangoutDraft) async throws -> Void,
         initialDraft: CreateHangoutDraft = CreateHangoutDraft()
     ) {
         self.onCancel = onCancel
@@ -1577,7 +1577,7 @@ struct CreateHangoutView: View {
         topErrorMessage = nil
 
         if isLastStep {
-            submit()
+            Task { await submit() }
             return
         }
 
@@ -1596,7 +1596,8 @@ struct CreateHangoutView: View {
         }
     }
 
-    private func submit() {
+    @MainActor
+    private func submit() async {
         let errors = validationErrors()
         guard errors.isEmpty else {
             highlightedFields = Set(errors.map(\.field))
@@ -1622,10 +1623,16 @@ struct CreateHangoutView: View {
         draft.isMicro = false
         draft.coverImageData = coverImageData
 
-        FriendZoneHaptics.success()
-        onCreate(draft)
-        isSubmitting = false
-        onCancel()
+        do {
+            try await onCreate(draft)
+            FriendZoneHaptics.success()
+            isSubmitting = false
+            onCancel()
+        } catch {
+            isSubmitting = false
+            topErrorMessage = error.localizedDescription
+            FriendZoneHaptics.lightImpact()
+        }
     }
 
     private func stepErrors(for step: Int) -> [ValidationError] {

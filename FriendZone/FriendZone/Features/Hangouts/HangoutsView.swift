@@ -13,6 +13,8 @@ struct HangoutsView: View {
     @State private var isPresentingCreate = false
     @State private var pendingHangoutSource: HangoutSourceType = .hangout
     @State private var pendingHangoutSourceLabel: String?
+    @State private var pendingHangoutSourceEventID: Int?
+    @State private var pendingHangoutSourceOfferID: Int?
     @State private var isPresentingAdvancedFilters = false
     @State private var isPresentingProfile = false
     @State private var isPresentingSettings = false
@@ -252,11 +254,13 @@ struct HangoutsView: View {
             CreateHangoutView(
                 onCancel: { isPresentingCreate = false },
                 onCreate: { draft in
-                    viewModel.addCreatedHangout(from: draft)
+                    try await createHangout(draft)
                 },
                 initialDraft: CreateHangoutDraft(
                     sourceType: pendingHangoutSource,
-                    sourceLabel: pendingHangoutSourceLabel
+                    sourceLabel: pendingHangoutSourceLabel,
+                    sourceEventID: pendingHangoutSourceEventID,
+                    sourceOfferID: pendingHangoutSourceOfferID
                 )
             )
             .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
@@ -317,6 +321,8 @@ struct HangoutsView: View {
                         selectedEventDetail = nil
                         pendingHangoutSource = .event
                         pendingHangoutSourceLabel = event.title
+                        pendingHangoutSourceEventID = event.id
+                        pendingHangoutSourceOfferID = nil
                         isPresentingCreate = true
                         FriendZoneHaptics.selection()
                     },
@@ -346,6 +352,8 @@ struct HangoutsView: View {
                         selectedOfferDetail = nil
                         pendingHangoutSource = .offer
                         pendingHangoutSourceLabel = offer.title
+                        pendingHangoutSourceEventID = nil
+                        pendingHangoutSourceOfferID = offer.id
                         isPresentingCreate = true
                         FriendZoneHaptics.selection()
                     },
@@ -617,6 +625,21 @@ struct HangoutsView: View {
         default:
             return .chill
         }
+    }
+
+    @MainActor
+    private func createHangout(_ draft: CreateHangoutDraft) async throws {
+        let normalizedDraft = normalizedCreateDraft(draft)
+        _ = try await session.createHangout(from: normalizedDraft)
+        await loadBackendHangouts()
+    }
+
+    private func normalizedCreateDraft(_ draft: CreateHangoutDraft) -> CreateHangoutDraft {
+        var updated = draft
+        updated.sourceLabel = pendingHangoutSourceLabel
+        updated.sourceEventID = pendingHangoutSourceEventID
+        updated.sourceOfferID = pendingHangoutSourceOfferID
+        return updated
     }
 
     private var backdrop: some View {
@@ -937,6 +960,10 @@ struct HangoutsView: View {
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
                     Button("Create Hangout") {
+                        pendingHangoutSource = .hangout
+                        pendingHangoutSourceLabel = nil
+                        pendingHangoutSourceEventID = nil
+                        pendingHangoutSourceOfferID = nil
                         isPresentingCreate = true
                         FriendZoneHaptics.selection()
                     }
@@ -1252,6 +1279,8 @@ struct HangoutsView: View {
         Button {
             pendingHangoutSource = .hangout
             pendingHangoutSourceLabel = nil
+            pendingHangoutSourceEventID = nil
+            pendingHangoutSourceOfferID = nil
             isPresentingCreate = true
             FriendZoneHaptics.selection()
         } label: {
