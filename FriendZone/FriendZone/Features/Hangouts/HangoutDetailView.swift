@@ -100,7 +100,7 @@ struct HangoutDetailView: View {
         .alert("Cancel this hangout?", isPresented: $isShowingCancelHangoutConfirm) {
             Button("Keep", role: .cancel) {}
             Button("Cancel Hangout", role: .destructive) {
-                isCancelledByHost = true
+                Task { await cancelHangout() }
             }
         } message: {
             Text("Participants will be notified that this hangout was cancelled.")
@@ -1460,6 +1460,21 @@ struct HangoutDetailView: View {
             localJoinStatus = .none
             actionFeedback = "You left the hangout."
             await hydrateRemoteState()
+        } catch {
+            actionFeedback = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelHangout() async {
+        guard !isPerformingNetworkAction else { return }
+        isPerformingNetworkAction = true
+        defer { isPerformingNetworkAction = false }
+
+        do {
+            try await session.cancelHangout(id: hangout.id)
+            isCancelledByHost = true
+            actionFeedback = "Hangout cancelled successfully."
         } catch {
             actionFeedback = error.localizedDescription
         }

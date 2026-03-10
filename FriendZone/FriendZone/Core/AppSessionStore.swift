@@ -538,6 +538,12 @@ final class AppSessionStore: ObservableObject {
         } as EmptyResponse
     }
 
+    func cancelHangout(id: Int) async throws {
+        _ = try await authorizedCall { [self] accessToken in
+            try await discoverAPI.cancelHangout(id: id, accessToken: accessToken)
+        } as EmptyResponse
+    }
+
     func approveJoinRequest(hangoutID: Int, requestID: Int) async throws -> HangoutFeedItem {
         try await authorizedCall { [self] accessToken in
             try await discoverAPI.approveJoinRequest(hangoutID: hangoutID, requestID: requestID, accessToken: accessToken)
@@ -1191,6 +1197,12 @@ private final class DiscoverAPIService {
 
     func leaveHangout(id: Int, accessToken: String) async throws -> EmptyResponse {
         let data = try await request(path: "/api/hangouts/\(id)/leave/", method: "POST", accessToken: accessToken)
+        if data.isEmpty { return EmptyResponse() }
+        return (try? decode(EmptyResponse.self, from: data)) ?? EmptyResponse()
+    }
+
+    func cancelHangout(id: Int, accessToken: String) async throws -> EmptyResponse {
+        let data = try await request(path: "/api/hangouts/\(id)/cancel/", method: "POST", accessToken: accessToken)
         if data.isEmpty { return EmptyResponse() }
         return (try? decode(EmptyResponse.self, from: data)) ?? EmptyResponse()
     }
