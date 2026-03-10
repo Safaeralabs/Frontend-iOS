@@ -29,6 +29,7 @@ struct HangoutsView: View {
     @State private var animateDayDots = false
     @State private var backendEvents: [DiscoveryEventItem] = []
     @State private var backendOffers: [DiscoveryOfferItem] = []
+    @State private var shouldRefreshHangoutsOnAppear = false
     @StateObject private var creatorContext = SettingsCreatorContextViewModel()
 
     private let minuteTicker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -237,6 +238,12 @@ struct HangoutsView: View {
             await viewModel.loadIfNeeded()
             await creatorContext.loadIfNeeded()
             await loadDiscoveryContent()
+            await loadBackendHangouts()
+        }
+        .onAppear {
+            guard shouldRefreshHangoutsOnAppear else { return }
+            shouldRefreshHangoutsOnAppear = false
+            Task { await loadBackendHangouts() }
         }
         .onReceive(minuteTicker) { value in
             now = value
@@ -303,9 +310,8 @@ struct HangoutsView: View {
                     event: event,
                     creatorProfile: event.creatorProfile,
                     onClose: { selectedEventDetail = nil },
-                    onJoinSolo: {
+                    onJoinSoloSuccess: {
                         selectedEventDetail = nil
-                        FriendZoneHaptics.success()
                     },
                     onCreateHangout: {
                         selectedEventDetail = nil
@@ -517,6 +523,100 @@ struct HangoutsView: View {
         }
         iso.formatOptions = [.withInternetDateTime]
         return iso.date(from: raw)
+    }
+
+    @MainActor
+    private func loadBackendHangouts() async {
+        do {
+            let items = try await session.fetchHangouts()
+            let mapped = items.compactMap(mapHangoutFeed)
+            guard !mapped.isEmpty else { return }
+
+            let requestedIDs = Set(
+                items.compactMap { item in
+                    let hasRequested = item.joinRequests.contains { request in
+                        request.user == session.currentUser?.id &&
+                        ["pending", "waitlisted"].contains(request.status.lowercased())
+                    }
+                    return hasRequested ? item.id : nil
+                }
+            )
+
+            viewModel.replaceHangouts(
+                mapped.sorted { $0.startAt < $1.startAt },
+                requestedIDs: requestedIDs
+            )
+        } catch {
+            // Keep mock feed as fallback.
+        }
+    }
+
+    private func mapHangoutFeed(_ item: HangoutFeedItem) -> HangoutItem? {
+        guard
+            let startAt = parseServerDate(item.startAt),
+            let endAt = parseServerDate(item.endAt)
+        else {
+            return nil
+        }
+
+        let currentUserID = session.currentUser?.id
+        let isJoined = item.participants.contains {
+            $0.user == currentUserID && $0.status.lowercased() == "approved"
+        }
+        let participantNames = item.participants
+            .filter { $0.status.lowercased() == "approved" }
+            .map(\.username)
+
+        return HangoutItem(
+            id: item.id,
+            sourceType: mapSourceType(item.sourceType),
+            title: item.title,
+            description: item.description,
+            vibe: mapVibe(item.vibe),
+            cityName: item.cityName,
+            locationName: item.locationName,
+            hostName: item.host == currentUserID ? "you" : item.hostUsername,
+            startAt: startAt,
+            endAt: endAt,
+            capacity: item.capacity,
+            approvedCount: item.approvedParticipantsCount ?? participantNames.count,
+            isLive: item.isLive,
+            isMicro: item.isMicro,
+            isJoined: isJoined || item.host == currentUserID,
+            participantNames: participantNames,
+            coverImageData: nil,
+            coverSeed: item.id,
+            distanceKm: 1.2,
+            priceTier: .free
+        )
+    }
+
+    private func mapSourceType(_ raw: String) -> HangoutSourceType {
+        switch raw.lowercased() {
+        case "event":
+            return .event
+        case "offer":
+            return .offer
+        default:
+            return .hangout
+        }
+    }
+
+    private func mapVibe(_ raw: String) -> HangoutVibe {
+        switch raw.lowercased() {
+        case "drinks":
+            return .drinks
+        case "sporty", "outdoors":
+            return .sporty
+        case "food":
+            return .foodie
+        case "creative", "culture", "board games":
+            return .activity
+        case "deep talks":
+            return .deepTalk
+        default:
+            return .chill
+        }
     }
 
     private var backdrop: some View {
@@ -861,10 +961,12 @@ struct HangoutsView: View {
                                         joinStatus: joinStatus,
                                         onRequestJoin: {
                                             viewModel.requestJoin(for: hangout)
+                                            shouldRefreshHangoutsOnAppear = true
                                             FriendZoneHaptics.success()
                                         },
                                         onCancelRequest: {
                                             viewModel.cancelJoinRequest(for: hangout)
+                                            shouldRefreshHangoutsOnAppear = true
                                             FriendZoneHaptics.selection()
                                         }
                                     )
@@ -1226,12 +1328,14 @@ private struct NativeEventDetailView: View {
     let event: HangoutsView.DiscoveryEventItem
     let creatorProfile: CreatorProfileDraft
     let onClose: () -> Void
-    let onJoinSolo: () -> Void
+    let onJoinSoloSuccess: () -> Void
     let onCreateHangout: () -> Void
     let onShowCreatorProfile: () -> Void
     @State private var isShowingTicketPreview = false
     @State private var selectedHeroPage = 0
     @State private var detail: EventDetailFeedItem?
+    @State private var isJoiningSolo = false
+    @State private var joinFeedbackMessage: String?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -1253,12 +1357,23 @@ private struct NativeEventDetailView: View {
                         body: eventExpectText
                     )
                     DetailActionsRow(
-                        onJoinSolo: onJoinSolo,
+                        onJoinSolo: {
+                            Task { await joinSolo() }
+                        },
                         onCreateHangout: onCreateHangout,
+                        isJoinSoloLoading: isJoiningSolo,
                         onPreviewTicket: {
                             isShowingTicketPreview = true
                         }
                     )
+
+                    if let joinFeedbackMessage {
+                        Text(joinFeedbackMessage)
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 2)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
@@ -1520,6 +1635,22 @@ private struct NativeEventDetailView: View {
             // Keep minimal discovery payload as fallback.
         }
     }
+
+    @MainActor
+    private func joinSolo() async {
+        guard !isJoiningSolo else { return }
+        isJoiningSolo = true
+        defer { isJoiningSolo = false }
+
+        do {
+            try await session.joinEventSolo(id: event.id)
+            joinFeedbackMessage = "Solo join confirmed."
+            FriendZoneHaptics.success()
+            onJoinSoloSuccess()
+        } catch {
+            joinFeedbackMessage = error.localizedDescription
+        }
+    }
 }
 
 private struct EventPhotoTicketView: View {
@@ -1766,6 +1897,7 @@ private struct NativeOfferDetailView: View {
                     DetailActionsRow(
                         onJoinSolo: onJoinSolo,
                         onCreateHangout: onCreateHangout,
+                        isJoinSoloLoading: false,
                         onPreviewTicket: {
                             isShowingTicketPreview = true
                         }
@@ -1923,12 +2055,13 @@ private struct NativeOfferDetailView: View {
 private struct DetailActionsRow: View {
     let onJoinSolo: () -> Void
     let onCreateHangout: () -> Void
+    var isJoinSoloLoading: Bool = false
     let onPreviewTicket: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
             Button(action: onJoinSolo) {
-                Text("Join Solo")
+                Text(isJoinSoloLoading ? "Joining..." : "Join Solo")
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                     .frame(maxWidth: .infinity)
@@ -1941,6 +2074,7 @@ private struct DetailActionsRow: View {
                     }
             }
             .buttonStyle(.plain)
+            .disabled(isJoinSoloLoading)
 
             Button(action: onCreateHangout) {
                 Text("Create Hangout")

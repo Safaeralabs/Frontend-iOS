@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct HangoutDetailView: View {
+    @EnvironmentObject private var session: AppSessionStore
     let hangout: HangoutItem
     let onRequestJoin: () -> Void
     let onCancelRequest: () -> Void
@@ -23,6 +24,8 @@ struct HangoutDetailView: View {
     @State private var joinRequests: [DetailJoinRequest]
     @State private var detailMessages: [DetailChatMessage]
     @State private var composerText = ""
+    @State private var actionFeedback: String?
+    @State private var isPerformingNetworkAction = false
     @FocusState private var composerFocused: Bool
 
     init(
@@ -111,6 +114,9 @@ struct HangoutDetailView: View {
             }
             .background(FriendZoneTheme.Colors.background)
         }
+        .task {
+            await hydrateRemoteState()
+        }
     }
 
     private var background: some View {
@@ -184,6 +190,14 @@ struct HangoutDetailView: View {
                 statusBanner(
                     title: "Cancelled by host",
                     message: "Participants can no longer join this hangout."
+                )
+                .padding(.top, 12)
+            }
+
+            if let actionFeedback {
+                statusBanner(
+                    title: "Status",
+                    message: actionFeedback
                 )
                 .padding(.top, 12)
             }
@@ -633,8 +647,8 @@ struct HangoutDetailView: View {
                         .background(detailAccentColor)
                         .clipShape(Circle())
                 }
-                .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+                .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPerformingNetworkAction)
+                .opacity((composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPerformingNetworkAction) ? 0.45 : 1)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -887,7 +901,7 @@ struct HangoutDetailView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    acceptJoinRequest(request)
+                    Task { await acceptJoinRequestRemote(request) }
                 } label: {
                     Text("Accept")
                         .font(FriendZoneTheme.Typography.system(12, weight: .bold))
@@ -899,7 +913,7 @@ struct HangoutDetailView: View {
                 }
 
                 Button {
-                    declineJoinRequest(request)
+                    Task { await declineJoinRequestRemote(request) }
                 } label: {
                     Text("Decline")
                         .font(FriendZoneTheme.Typography.system(12, weight: .bold))
@@ -938,18 +952,16 @@ struct HangoutDetailView: View {
                     tint: FriendZoneTheme.Colors.error,
                     isEnabled: !isEnded
                 ) {
-                    localJoinStatus = .none
+                    Task { await leaveHangout() }
                 }
             } else if localJoinStatus == .requested {
                 bottomActionButton(
                     title: isWaitlisted ? "Leave Waitlist" : "Cancel Request",
                     subtitle: isWaitlisted ? "You will stop waiting for a free place" : "Withdraw your join request",
                     tint: FriendZoneTheme.Colors.textPrimary,
-                    isEnabled: !isEnded
+                    isEnabled: false
                 ) {
-                    isWaitlisted = false
-                    localJoinStatus = .none
-                    onCancelRequest()
+                    actionFeedback = "Cancel request is not exposed by the backend yet."
                 }
             } else {
                 bottomActionButton(
@@ -958,9 +970,7 @@ struct HangoutDetailView: View {
                     tint: detailAccentColor,
                     isEnabled: !(isEnded || isCancelledByHost)
                 ) {
-                    localJoinStatus = .requested
-                    isWaitlisted = hangout.isFull
-                    onRequestJoin()
+                    Task { await requestJoin() }
                 }
             }
         }
@@ -1038,20 +1048,10 @@ struct HangoutDetailView: View {
     }
 
     private func sendActivityMessage() {
+        guard !isPerformingNetworkAction else { return }
         let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        detailMessages.append(
-            DetailChatMessage(
-                author: "You",
-                initials: "Y",
-                text: trimmed,
-                time: "now",
-                tint: detailAccentColor,
-                isMine: true
-            )
-        )
-        composerText = ""
-        composerFocused = false
+        Task { await sendMessage(trimmed) }
     }
 
     private var subtitleText: String {
@@ -1322,6 +1322,214 @@ struct HangoutDetailView: View {
                 hexColor: "#22B8A2"
             )
         ]
+    }
+
+    @MainActor
+    private func hydrateRemoteState() async {
+        do {
+            let remote = try await session.fetchHangoutDetail(id: hangout.id)
+            applyRemoteHangout(remote)
+
+            if canOpenChat {
+                try? await loadMessages()
+            }
+        } catch {
+            actionFeedback = nil
+        }
+    }
+
+    @MainActor
+    private func applyRemoteHangout(_ remote: HangoutFeedItem) {
+        isCancelledByHost = remote.status.lowercased() == "cancelled"
+        displayedParticipants = mapParticipants(from: remote)
+        joinRequests = mapJoinRequests(from: remote)
+
+        let currentUserID = session.currentUser?.id
+        if remote.host == currentUserID {
+            localJoinStatus = .joined
+            isWaitlisted = false
+            return
+        }
+
+        let isApproved = remote.participants.contains {
+            $0.user == currentUserID && $0.status.lowercased() == "approved"
+        }
+        if isApproved {
+            localJoinStatus = .joined
+            isWaitlisted = false
+            return
+        }
+
+        if let myRequest = remote.joinRequests.first(where: { $0.user == currentUserID }) {
+            localJoinStatus = .requested
+            isWaitlisted = myRequest.status.lowercased() == "waitlisted"
+        }
+    }
+
+    private func mapParticipants(from remote: HangoutFeedItem) -> [DetailPerson] {
+        var items: [DetailPerson] = [
+            DetailPerson(
+                id: "host-\(remote.host)",
+                displayName: remote.host == session.currentUser?.id ? "you" : remote.hostUsername,
+                role: "Host",
+                tint: Color(hex: "#5C6BFF"),
+                hexColor: "#5C6BFF",
+                isConfirmed: true
+            )
+        ]
+
+        let colors = ["#FF5E7E", "#22B8A2", "#F18B4C", "#8A5DFF", "#3C91E6", "#5C6BFF"]
+        let approved = remote.participants.filter { $0.status.lowercased() == "approved" }
+        for (index, person) in approved.enumerated() {
+            items.append(
+                DetailPerson(
+                    id: "participant-\(person.id)",
+                    displayName: person.user == session.currentUser?.id ? "You" : person.username,
+                    role: "Member",
+                    tint: Color(hex: colors[index % colors.count]),
+                    hexColor: colors[index % colors.count],
+                    isConfirmed: true
+                )
+            )
+        }
+        return items
+    }
+
+    private func mapJoinRequests(from remote: HangoutFeedItem) -> [DetailJoinRequest] {
+        let colors = ["#FF5E7E", "#22B8A2", "#F18B4C", "#8A5DFF"]
+        return remote.joinRequests
+            .filter { $0.status.lowercased() == "pending" || $0.status.lowercased() == "waitlisted" }
+            .enumerated()
+            .map { index, request in
+                let color = colors[index % colors.count]
+                return DetailJoinRequest(
+                    id: String(request.id),
+                    displayName: request.user == session.currentUser?.id ? "You" : request.userUsername,
+                    headline: request.status.lowercased() == "waitlisted" ? "Currently on the waitlist" : "Wants to join this hangout",
+                    note: request.message?.isEmpty == false ? request.message ?? "" : "No intro message yet.",
+                    city: hangout.cityName,
+                    arrivalHint: request.status.lowercased() == "waitlisted" ? "Waitlisted" : "Pending",
+                    tint: Color(hex: color),
+                    hexColor: color
+                )
+            }
+    }
+
+    @MainActor
+    private func loadMessages() async throws {
+        let messages = try await session.fetchHangoutMessages(hangoutID: hangout.id)
+        detailMessages = messages.map { message in
+            let color = message.userId == session.currentUser?.id ? detailAccentColor : Color(hex: "#5C6BFF")
+            return DetailChatMessage(
+                author: message.userId == session.currentUser?.id ? "You" : message.userUsername,
+                initials: String((message.userUsername.first ?? "U")).uppercased(),
+                text: message.message,
+                time: relativeTimeLabel(from: message.createdAt),
+                tint: color,
+                isMine: message.userId == session.currentUser?.id
+            )
+        }
+    }
+
+    @MainActor
+    private func requestJoin() async {
+        guard !isPerformingNetworkAction else { return }
+        isPerformingNetworkAction = true
+        defer { isPerformingNetworkAction = false }
+
+        do {
+            let result = try await session.requestJoinHangout(id: hangout.id)
+            localJoinStatus = .requested
+            isWaitlisted = result.status.lowercased() == "waitlisted"
+            actionFeedback = isWaitlisted ? "You are on the waitlist." : "Join request sent."
+            onRequestJoin()
+            await hydrateRemoteState()
+        } catch {
+            actionFeedback = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func leaveHangout() async {
+        guard !isPerformingNetworkAction else { return }
+        isPerformingNetworkAction = true
+        defer { isPerformingNetworkAction = false }
+
+        do {
+            try await session.leaveHangout(id: hangout.id)
+            localJoinStatus = .none
+            actionFeedback = "You left the hangout."
+            await hydrateRemoteState()
+        } catch {
+            actionFeedback = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func sendMessage(_ trimmed: String) async {
+        guard !isPerformingNetworkAction else { return }
+        isPerformingNetworkAction = true
+        defer { isPerformingNetworkAction = false }
+
+        do {
+            let created = try await session.sendHangoutMessage(hangoutID: hangout.id, message: trimmed)
+            detailMessages.append(
+                DetailChatMessage(
+                    author: "You",
+                    initials: "Y",
+                    text: created.message,
+                    time: "now",
+                    tint: detailAccentColor,
+                    isMine: true
+                )
+            )
+            composerText = ""
+            composerFocused = false
+        } catch {
+            actionFeedback = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func acceptJoinRequestRemote(_ request: DetailJoinRequest) async {
+        guard !isPerformingNetworkAction, let requestID = Int(request.id) else { return }
+        isPerformingNetworkAction = true
+        defer { isPerformingNetworkAction = false }
+
+        do {
+            let remote = try await session.approveJoinRequest(hangoutID: hangout.id, requestID: requestID)
+            applyRemoteHangout(remote)
+            try? await loadMessages()
+        } catch {
+            actionFeedback = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func declineJoinRequestRemote(_ request: DetailJoinRequest) async {
+        guard !isPerformingNetworkAction, let requestID = Int(request.id) else { return }
+        isPerformingNetworkAction = true
+        defer { isPerformingNetworkAction = false }
+
+        do {
+            let remote = try await session.rejectJoinRequest(hangoutID: hangout.id, requestID: requestID)
+            applyRemoteHangout(remote)
+        } catch {
+            actionFeedback = error.localizedDescription
+        }
+    }
+
+    private func relativeTimeLabel(from raw: String) -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = iso.date(from: raw) ?? {
+            iso.formatOptions = [.withInternetDateTime]
+            return iso.date(from: raw)
+        }()
+        guard let date else { return "now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 

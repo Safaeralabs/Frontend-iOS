@@ -218,10 +218,69 @@ struct OfferDetailFeedItem: Decodable, Identifiable, Equatable {
     let hangoutId: Int?
 }
 
+struct HangoutParticipantFeedItem: Decodable, Equatable {
+    let id: Int
+    let user: Int
+    let username: String
+    let status: String
+}
+
+struct HangoutJoinRequestFeedItem: Decodable, Equatable {
+    let id: Int
+    let user: Int
+    let userUsername: String
+    let message: String?
+    let status: String
+}
+
+struct HangoutFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let host: Int
+    let hostUsername: String
+    let title: String
+    let description: String
+    let coverImageUrl: String?
+    let cityName: String
+    let locationName: String?
+    let startAt: String
+    let endAt: String
+    let capacity: Int
+    let approvedParticipantsCount: Int?
+    let status: String
+    let sourceType: String
+    let sourceEventId: Int?
+    let sourceOfferId: Int?
+    let vibe: String
+    let isMicro: Bool
+    let isLive: Bool
+    let participants: [HangoutParticipantFeedItem]
+    let joinRequests: [HangoutJoinRequestFeedItem]
+}
+
+struct HangoutMessageFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let userId: Int
+    let userUsername: String
+    let message: String
+    let createdAt: String
+    let updatedAt: String?
+    let isEdited: Bool?
+}
+
+private struct EventSoloJoinResponse: Decodable {
+    let id: Int
+}
+
+private struct HangoutMessageCreateRequest: Encodable {
+    let message: String
+}
+
 private struct AuthTokenPair: Codable {
     let access: String
     let refresh: String
 }
+
+private struct EmptyResponse: Decodable {}
 
 private struct AuthSessionPayload: Decodable {
     let user: AuthenticatedUser
@@ -446,6 +505,60 @@ final class AppSessionStore: ObservableObject {
     func fetchOfferDetail(id: Int) async throws -> OfferDetailFeedItem {
         try await authorizedCall { [self] accessToken in
             try await discoverAPI.fetchOfferDetail(id: id, accessToken: accessToken)
+        }
+    }
+
+    func joinEventSolo(id: Int) async throws {
+        _ = try await authorizedCall { [self] accessToken in
+            try await discoverAPI.joinEventSolo(id: id, accessToken: accessToken)
+        } as EventSoloJoinResponse
+    }
+
+    func fetchHangouts() async throws -> [HangoutFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchHangouts(accessToken: accessToken)
+        }
+    }
+
+    func fetchHangoutDetail(id: Int) async throws -> HangoutFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchHangoutDetail(id: id, accessToken: accessToken)
+        }
+    }
+
+    func requestJoinHangout(id: Int, message: String = "") async throws -> HangoutJoinRequestFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.requestJoinHangout(id: id, message: message, accessToken: accessToken)
+        }
+    }
+
+    func leaveHangout(id: Int) async throws {
+        _ = try await authorizedCall { [self] accessToken in
+            try await discoverAPI.leaveHangout(id: id, accessToken: accessToken)
+        } as EmptyResponse
+    }
+
+    func approveJoinRequest(hangoutID: Int, requestID: Int) async throws -> HangoutFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.approveJoinRequest(hangoutID: hangoutID, requestID: requestID, accessToken: accessToken)
+        }
+    }
+
+    func rejectJoinRequest(hangoutID: Int, requestID: Int) async throws -> HangoutFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.rejectJoinRequest(hangoutID: hangoutID, requestID: requestID, accessToken: accessToken)
+        }
+    }
+
+    func fetchHangoutMessages(hangoutID: Int) async throws -> [HangoutMessageFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchHangoutMessages(hangoutID: hangoutID, accessToken: accessToken)
+        }
+    }
+
+    func sendHangoutMessage(hangoutID: Int, message: String) async throws -> HangoutMessageFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.sendHangoutMessage(hangoutID: hangoutID, message: message, accessToken: accessToken)
         }
     }
 
@@ -1040,6 +1153,16 @@ private final class DiscoverAPIService {
         return try decode([DiscoveryEventFeedItem].self, from: data)
     }
 
+    func fetchHangouts(accessToken: String) async throws -> [HangoutFeedItem] {
+        let data = try await request(path: "/api/hangouts/", accessToken: accessToken)
+        return try decode([HangoutFeedItem].self, from: data)
+    }
+
+    func fetchHangoutDetail(id: Int, accessToken: String) async throws -> HangoutFeedItem {
+        let data = try await request(path: "/api/hangouts/\(id)/", accessToken: accessToken)
+        return try decode(HangoutFeedItem.self, from: data)
+    }
+
     func fetchActiveOffers(accessToken: String) async throws -> [DiscoveryOfferFeedItem] {
         let data = try await request(path: "/api/offers/", accessToken: accessToken)
         return try decode([DiscoveryOfferFeedItem].self, from: data)
@@ -1055,11 +1178,56 @@ private final class DiscoverAPIService {
         return try decode(OfferDetailFeedItem.self, from: data)
     }
 
-    private func request(path: String, accessToken: String) async throws -> Data {
+    func joinEventSolo(id: Int, accessToken: String) async throws -> EventSoloJoinResponse {
+        let data = try await request(path: "/api/events/\(id)/join-solo/", method: "POST", accessToken: accessToken)
+        return try decode(EventSoloJoinResponse.self, from: data)
+    }
+
+    func requestJoinHangout(id: Int, message: String, accessToken: String) async throws -> HangoutJoinRequestFeedItem {
+        let body = try JSONEncoder().encode(["message": message])
+        let data = try await request(path: "/api/hangouts/\(id)/join/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(HangoutJoinRequestFeedItem.self, from: data)
+    }
+
+    func leaveHangout(id: Int, accessToken: String) async throws -> EmptyResponse {
+        let data = try await request(path: "/api/hangouts/\(id)/leave/", method: "POST", accessToken: accessToken)
+        if data.isEmpty { return EmptyResponse() }
+        return (try? decode(EmptyResponse.self, from: data)) ?? EmptyResponse()
+    }
+
+    func approveJoinRequest(hangoutID: Int, requestID: Int, accessToken: String) async throws -> HangoutFeedItem {
+        let body = try JSONEncoder().encode(["request_id": requestID])
+        let data = try await request(path: "/api/hangouts/\(hangoutID)/approve/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(HangoutFeedItem.self, from: data)
+    }
+
+    func rejectJoinRequest(hangoutID: Int, requestID: Int, accessToken: String) async throws -> HangoutFeedItem {
+        let body = try JSONEncoder().encode(["request_id": requestID])
+        let data = try await request(path: "/api/hangouts/\(hangoutID)/reject/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(HangoutFeedItem.self, from: data)
+    }
+
+    func fetchHangoutMessages(hangoutID: Int, accessToken: String) async throws -> [HangoutMessageFeedItem] {
+        let data = try await request(path: "/api/hangouts/\(hangoutID)/messages/", accessToken: accessToken)
+        return try decode([HangoutMessageFeedItem].self, from: data)
+    }
+
+    func sendHangoutMessage(hangoutID: Int, message: String, accessToken: String) async throws -> HangoutMessageFeedItem {
+        let payload = HangoutMessageCreateRequest(message: message)
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/hangouts/\(hangoutID)/messages/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(HangoutMessageFeedItem.self, from: data)
+    }
+
+    private func request(path: String, method: String = "GET", body: Data? = nil, accessToken: String) async throws -> Data {
         var request = URLRequest(url: AppConfig.url(for: path))
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {

@@ -149,6 +149,13 @@ final class HangoutsViewModel: ObservableObject {
         isLoading = false
     }
 
+    func replaceHangouts(_ items: [HangoutItem], requestedIDs: Set<Int>) {
+        allHangouts = items
+        requestedJoinIDs = requestedIDs
+        hasLoaded = true
+        isLoading = false
+    }
+
     func resetFilters() {
         selectedFilter = .forYou
         selectedDay = calendar.startOfDay(for: Date())
