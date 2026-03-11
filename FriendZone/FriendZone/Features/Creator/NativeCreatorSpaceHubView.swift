@@ -17,6 +17,8 @@ struct NativeCreatorSpaceHubView: View {
     @State private var didSaveProfile = false
     @State private var saveErrorMessage: String?
     @State private var isShowingPublicProfile = false
+    @State private var isLoadingDashboard = false
+    @State private var dashboardErrorMessage: String?
 
     private var availableTabs: [CreatorSpaceTab] {
         var tabs: [CreatorSpaceTab] = [.profile]
@@ -90,6 +92,16 @@ struct NativeCreatorSpaceHubView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
                         .padding(.bottom, 120)
+
+                    if let dashboardErrorMessage {
+                        Text(dashboardErrorMessage)
+                            .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.error)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 24)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .background(FriendZoneTheme.Colors.background)
@@ -158,6 +170,7 @@ struct NativeCreatorSpaceHubView: View {
                 activeTab = first
             }
             hydrateProfileDraftIfNeeded()
+            Task { await loadCreatorDashboardIfNeeded() }
         }
         .sheet(isPresented: $isShowingPublicProfile) {
             NavigationStack {
@@ -353,7 +366,9 @@ struct NativeCreatorSpaceHubView: View {
 
     private var eventsTab: some View {
         Group {
-            if events.isEmpty {
+            if isLoadingDashboard && events.isEmpty {
+                dashboardLoadingState("Loading events…")
+            } else if events.isEmpty {
                 emptyState(
                     emoji: "🎉",
                     title: "No events yet",
@@ -377,7 +392,9 @@ struct NativeCreatorSpaceHubView: View {
 
     private var venuesTab: some View {
         Group {
-            if venues.isEmpty {
+            if isLoadingDashboard && venues.isEmpty {
+                dashboardLoadingState("Loading venues…")
+            } else if venues.isEmpty {
                 emptyState(
                     emoji: "🏢",
                     title: "No venues yet",
@@ -395,7 +412,9 @@ struct NativeCreatorSpaceHubView: View {
 
     private var offersTab: some View {
         Group {
-            if offers.isEmpty {
+            if isLoadingDashboard && offers.isEmpty {
+                dashboardLoadingState("Loading offers…")
+            } else if offers.isEmpty {
                 emptyState(
                     emoji: "🎁",
                     title: "No offers yet",
@@ -518,6 +537,17 @@ struct NativeCreatorSpaceHubView: View {
         .padding(.vertical, 52)
     }
 
+    private func dashboardLoadingState(_ label: String) -> some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text(label)
+                .font(FriendZoneTheme.Typography.system(14, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 52)
+    }
+
     private var profileInitial: String {
         let trimmed = profileDraft.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return String(trimmed.first ?? Character("C")).uppercased()
@@ -548,6 +578,144 @@ struct NativeCreatorSpaceHubView: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func loadCreatorDashboardIfNeeded() async {
+        guard !isLoadingDashboard else { return }
+        isLoadingDashboard = true
+        defer { isLoadingDashboard = false }
+
+        dashboardErrorMessage = nil
+
+        async let eventsLoad: Void = loadCreatorEvents()
+        async let venuesLoad: Void = loadCreatorVenues()
+        async let offersLoad: Void = loadCreatorOffers()
+        _ = await (eventsLoad, venuesLoad, offersLoad)
+    }
+
+    @MainActor
+    private func loadCreatorEvents() async {
+        guard userFlags.isEventCreator else { return }
+        do {
+            let feed = try await session.fetchMyCreatorEvents()
+            events = feed.compactMap(mapCreatorEvent)
+        } catch {
+            dashboardErrorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadCreatorVenues() async {
+        guard userFlags.isVenueOwner else { return }
+        do {
+            let feed = try await session.fetchMyCreatorVenues()
+            venues = feed.map(mapCreatorVenue)
+        } catch {
+            dashboardErrorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadCreatorOffers() async {
+        guard userFlags.isVenueOwner else { return }
+        do {
+            let feed = try await session.fetchMyCreatorOffers()
+            offers = feed.compactMap(mapCreatorOffer)
+        } catch {
+            dashboardErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func mapCreatorEvent(_ item: CreatorEventFeedItem) -> CreatorEventItem? {
+        guard let startAt = parseServerDate(item.startAt) else { return nil }
+        return CreatorEventItem(
+            id: item.id,
+            title: item.title,
+            category: item.category ?? "event",
+            status: mapCreatorEventStatus(item.status),
+            venueName: item.venueName ?? "Venue",
+            startAt: startAt,
+            capacity: item.capacity ?? 0,
+            groupsCount: item.hangoutsCount ?? 0
+        )
+    }
+
+    private func mapCreatorVenue(_ item: CreatorVenueFeedItem) -> CreatorVenueItem {
+        CreatorVenueItem(
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            status: mapCreatorVenueStatus(item.status),
+            city: item.city,
+            address: item.address,
+            totalHangouts: item.totalHangouts ?? 0,
+            totalOffers: item.totalOffers ?? 0,
+            totalPeopleReached: item.totalPeopleReached ?? 0,
+            isVerified: item.isVerified ?? false
+        )
+    }
+
+    private func mapCreatorOffer(_ item: CreatorOfferFeedItem) -> CreatorOfferItem? {
+        guard let validUntil = parseServerDate(item.validUntil) else { return nil }
+        return CreatorOfferItem(
+            id: item.id,
+            title: item.title,
+            perk: item.perk,
+            status: mapCreatorOfferStatus(item.status),
+            venueName: item.venueName ?? "Venue",
+            validUntil: validUntil,
+            recurrence: item.recurrenceDisplay ?? "none",
+            claimsUsed: item.claimsUsed ?? 0,
+            capacity: item.capacity
+        )
+    }
+
+    private func mapCreatorEventStatus(_ raw: String) -> CreatorEventStatus {
+        switch raw.lowercased() {
+        case "live":
+            return .live
+        case "ended":
+            return .ended
+        case "cancelled":
+            return .cancelled
+        default:
+            return .upcoming
+        }
+    }
+
+    private func mapCreatorVenueStatus(_ raw: String) -> CreatorVenueStatus {
+        switch raw.lowercased() {
+        case "active":
+            return .active
+        case "pending":
+            return .pendingVerification
+        default:
+            return .inactive
+        }
+    }
+
+    private func mapCreatorOfferStatus(_ raw: String) -> CreatorOfferStatus {
+        switch raw.lowercased() {
+        case "active":
+            return .active
+        case "paused":
+            return .paused
+        case "draft":
+            return .draft
+        default:
+            return .expired
+        }
+    }
+
+    private func parseServerDate(_ raw: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) {
+            return date
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: raw)
     }
 
     private func hydrateProfileDraftIfNeeded(force: Bool = false) {

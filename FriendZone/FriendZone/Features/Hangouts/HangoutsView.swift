@@ -1352,7 +1352,7 @@ struct HangoutsView: View {
     }
 }
 
-private struct NativeEventDetailView: View {
+struct NativeEventDetailView: View {
     @EnvironmentObject private var session: AppSessionStore
     let event: HangoutsView.DiscoveryEventItem
     let creatorProfile: CreatorProfileDraft
@@ -1889,7 +1889,7 @@ struct DiscoveryOfferVoucherCardView: View {
     }
 }
 
-private struct NativeOfferDetailView: View {
+struct NativeOfferDetailView: View {
     @EnvironmentObject private var session: AppSessionStore
     let offer: HangoutsView.DiscoveryOfferItem
     let venueProfile: CreatorProfileDraft
@@ -4236,14 +4236,13 @@ private enum SettingsVerificationState {
 }
 
 private struct NativeNotificationsHubView: View {
+    @EnvironmentObject private var session: AppSessionStore
     let onClose: () -> Void
     @State private var filter: HubNotificationFilter = .all
-    @State private var items: [HubNotificationItem] = [
-        HubNotificationItem(id: 1, title: "Join approved", message: "You were accepted in Coffee and Co-Work Sprint", timeAgo: "2m", icon: "checkmark.seal.fill", colorHex: "#10B981", isRead: false),
-        HubNotificationItem(id: 2, title: "New join request", message: "Nora wants to join your Deep Talk Circle", timeAgo: "8m", icon: "person.2.fill", colorHex: "#8B5CF6", isRead: false),
-        HubNotificationItem(id: 3, title: "Hangout starts soon", message: "Sunset Rooftop Drinks starts in 30 minutes", timeAgo: "31m", icon: "clock.fill", colorHex: "#F59E0B", isRead: true),
-        HubNotificationItem(id: 4, title: "Ambition match", message: "A new weekly match aligns with your goals", timeAgo: "1h", icon: "sparkles", colorHex: "#3B82F6", isRead: true)
-    ]
+    @State private var items: [HubNotificationItem] = []
+    @State private var isLoading = true
+    @State private var isMarkingAllRead = false
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4252,7 +4251,10 @@ private struct NativeNotificationsHubView: View {
                 .padding(.vertical, 12)
                 .background(FriendZoneTheme.Colors.surface)
 
-            if visibleItems.isEmpty {
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if visibleItems.isEmpty {
                 VStack(spacing: 10) {
                     Text("🔔")
                         .font(.system(size: 44))
@@ -4280,20 +4282,33 @@ private struct NativeNotificationsHubView: View {
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadNotifications()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 if unreadCount > 0 {
                     Button("Mark all read") {
-                        for index in items.indices {
-                            items[index].isRead = true
-                        }
+                        Task { await markAllRead() }
                     }
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .disabled(isMarkingAllRead)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { onClose() }
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.error)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(FriendZoneTheme.Colors.background.opacity(0.96))
             }
         }
     }
@@ -4353,9 +4368,7 @@ private struct NativeNotificationsHubView: View {
 
     private func notificationRow(_ item: HubNotificationItem) -> some View {
         Button {
-            if let index = items.firstIndex(where: { $0.id == item.id }) {
-                items[index].isRead = true
-            }
+            Task { await markRead(item) }
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Circle()
@@ -4394,8 +4407,58 @@ private struct NativeNotificationsHubView: View {
             .padding(.vertical, 14)
             .background(item.isRead ? FriendZoneTheme.Colors.surface : Color(hex: "#FAFAFF"))
         }
+        .contextMenu {
+            Button("Mark read") {
+                Task { await markRead(item) }
+            }
+            .disabled(item.isRead)
+        }
         .buttonStyle(.plain)
     }
+
+    @MainActor
+    private func loadNotifications() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let feed = try await session.fetchNotifications()
+            items = feed.map(HubNotificationItem.init(feed:))
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func markRead(_ item: HubNotificationItem) async {
+        guard !item.isRead else { return }
+        do {
+            let updated = try await session.markNotificationRead(id: item.id)
+            if let index = items.firstIndex(where: { $0.id == item.id }) {
+                items[index] = HubNotificationItem(feed: updated)
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func markAllRead() async {
+        guard !isMarkingAllRead else { return }
+        isMarkingAllRead = true
+        defer { isMarkingAllRead = false }
+        do {
+            _ = try await session.markAllNotificationsRead()
+            for index in items.indices {
+                items[index].isRead = true
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
 }
 
 private enum HubNotificationFilter {
@@ -4411,6 +4474,56 @@ private struct HubNotificationItem: Identifiable {
     let icon: String
     let colorHex: String
     var isRead: Bool
+
+    init(feed: AppNotificationFeedItem) {
+        id = feed.id
+        title = feed.title
+        message = feed.message
+        timeAgo = feed.timeAgo
+        icon = Self.icon(for: feed.type)
+        colorHex = Self.color(for: feed.type)
+        isRead = feed.read
+    }
+
+    private static func icon(for type: String) -> String {
+        switch type {
+        case "join_approved":
+            return "checkmark.seal.fill"
+        case "join_rejected", "hangout_cancelled", "kicked":
+            return "xmark.octagon.fill"
+        case "new_join_request", "match_member_accepted":
+            return "person.2.fill"
+        case "event_starting_soon":
+            return "clock.fill"
+        case "ambition_match", "match_converted", "badge_earned":
+            return "sparkles"
+        case "new_review":
+            return "star.fill"
+        case "space_available", "waitlisted":
+            return "bell.badge.fill"
+        default:
+            return "bell.fill"
+        }
+    }
+
+    private static func color(for type: String) -> String {
+        switch type {
+        case "join_approved":
+            return "#10B981"
+        case "new_join_request", "match_member_accepted":
+            return "#8B5CF6"
+        case "event_starting_soon":
+            return "#F59E0B"
+        case "ambition_match", "match_converted":
+            return "#3B82F6"
+        case "join_rejected", "hangout_cancelled", "kicked":
+            return "#EF4444"
+        case "new_review", "badge_earned":
+            return "#0EA5E9"
+        default:
+            return "#667EEA"
+        }
+    }
 }
 
 private struct NativePlansHubView: View {
@@ -5345,12 +5458,16 @@ private struct NativeBlockedUsersHubView: View {
 }
 
 private struct NativeNotificationPreferencesHubView: View {
+    @EnvironmentObject private var session: AppSessionStore
     @State private var hangoutInvites = true
     @State private var joinRequests = true
     @State private var messages = true
     @State private var eventUpdates = true
     @State private var newFollowers = false
     @State private var reminders = true
+    @State private var isLoading = true
+    @State private var isSaving = false
+    @State private var errorMessage: String?
     @State private var didSave = false
 
     var body: some View {
@@ -5384,9 +5501,9 @@ private struct NativeNotificationPreferencesHubView: View {
                 }
 
                 Button {
-                    didSave = true
+                    Task { await savePreferences() }
                 } label: {
-                    Text("Save Preferences")
+                    Text(isSaving ? "Saving..." : "Save Preferences")
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textInverse)
                         .frame(maxWidth: .infinity)
@@ -5395,11 +5512,19 @@ private struct NativeNotificationPreferencesHubView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .disabled(isSaving || isLoading)
 
                 if didSave {
                     Text("Preferences saved")
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
                         .foregroundColor(FriendZoneTheme.Colors.success)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.error)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -5408,6 +5533,9 @@ private struct NativeNotificationPreferencesHubView: View {
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadPreferences()
+        }
     }
 
     private func preferenceRow(_ title: String, _ subtitle: String, isOn: Binding<Bool>) -> some View {
@@ -5427,6 +5555,56 @@ private struct NativeNotificationPreferencesHubView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    @MainActor
+    private func loadPreferences() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let preferences = try await session.fetchNotificationPreferences()
+            hangoutInvites = preferences.notifyJoinApproved || preferences.notifyJoinRejected
+            joinRequests = preferences.notifyNewJoinRequest || preferences.notifyHangoutCancelled || preferences.notifyHangoutChanged || preferences.notifySpaceAvailable || preferences.notifyKicked
+            messages = preferences.notifyAmbitionMatches || preferences.notifyMatchUpdates
+            eventUpdates = preferences.notifySavedEventUpdates || preferences.notifyNewEvents
+            newFollowers = preferences.notifyNewReviews || preferences.notifyBadges
+            reminders = preferences.notifyEventStartingSoon
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func savePreferences() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        didSave = false
+        do {
+            _ = try await session.updateNotificationPreferences(
+                NotificationPreferencesUpdateRequest(
+                    notifyJoinApproved: hangoutInvites,
+                    notifyJoinRejected: hangoutInvites,
+                    notifyNewJoinRequest: joinRequests,
+                    notifyHangoutCancelled: joinRequests,
+                    notifyHangoutChanged: joinRequests,
+                    notifyKicked: joinRequests,
+                    notifySpaceAvailable: joinRequests,
+                    notifyAmbitionMatches: messages,
+                    notifyMatchUpdates: messages,
+                    notifyEventStartingSoon: reminders,
+                    notifyNewEvents: eventUpdates,
+                    notifySavedEventUpdates: eventUpdates,
+                    notifyNewReviews: newFollowers,
+                    notifyBadges: newFollowers
+                )
+            )
+            errorMessage = nil
+            didSave = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

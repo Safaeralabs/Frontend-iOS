@@ -134,6 +134,8 @@ struct DiscoveryEventFeedItem: Decodable, Identifiable, Equatable {
     let venueName: String?
     let city: String?
     let cityPlaceId: String?
+    let lat: Double?
+    let lng: Double?
     let startAt: String
     let endAt: String?
     let category: String?
@@ -197,6 +199,8 @@ struct OfferVenueDetailItem: Decodable, Equatable {
     let cityPlaceId: String?
     let category: String?
     let googlePlaceId: String?
+    let lat: Double?
+    let lng: Double?
 }
 
 struct OfferDetailFeedItem: Decodable, Identifiable, Equatable {
@@ -216,6 +220,42 @@ struct OfferDetailFeedItem: Decodable, Identifiable, Equatable {
     let spotsRemaining: Int?
     let terms: String?
     let hangoutId: Int?
+}
+
+struct CreatorEventFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let title: String
+    let category: String?
+    let venueName: String?
+    let startAt: String
+    let capacity: Int?
+    let hangoutsCount: Int?
+    let status: String
+}
+
+struct CreatorVenueFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let name: String
+    let category: String
+    let status: String
+    let city: String
+    let address: String
+    let totalHangouts: Int?
+    let totalOffers: Int?
+    let totalPeopleReached: Int?
+    let isVerified: Bool?
+}
+
+struct CreatorOfferFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let title: String
+    let perk: String
+    let status: String
+    let venueName: String?
+    let validUntil: String
+    let recurrenceDisplay: String?
+    let claimsUsed: Int?
+    let capacity: Int?
 }
 
 struct HangoutParticipantFeedItem: Decodable, Equatable {
@@ -242,6 +282,8 @@ struct HangoutFeedItem: Decodable, Identifiable, Equatable {
     let coverImageUrl: String?
     let cityName: String
     let locationName: String?
+    let lat: Double?
+    let lng: Double?
     let startAt: String
     let endAt: String
     let capacity: Int
@@ -265,6 +307,66 @@ struct HangoutMessageFeedItem: Decodable, Identifiable, Equatable {
     let createdAt: String
     let updatedAt: String?
     let isEdited: Bool?
+}
+
+struct AppNotificationFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let type: String
+    let typeDisplay: String
+    let title: String
+    let message: String
+    let actionURL: String?
+    let relatedHangoutId: Int?
+    let relatedEventId: Int?
+    let relatedUserId: Int?
+    let read: Bool
+    let readAt: String?
+    let createdAt: String
+    let timeAgo: String
+}
+
+struct NotificationUnreadCountResponse: Decodable, Equatable {
+    let unreadCount: Int
+}
+
+struct NotificationMarkAllReadResponse: Decodable, Equatable {
+    let status: String
+    let markedCount: Int
+    let message: String
+}
+
+struct NotificationPreferencesFeedItem: Decodable, Equatable {
+    let notifyJoinApproved: Bool
+    let notifyJoinRejected: Bool
+    let notifyNewJoinRequest: Bool
+    let notifyHangoutCancelled: Bool
+    let notifyHangoutChanged: Bool
+    let notifyKicked: Bool
+    let notifySpaceAvailable: Bool
+    let notifyAmbitionMatches: Bool
+    let notifyMatchUpdates: Bool
+    let notifyEventStartingSoon: Bool
+    let notifyNewEvents: Bool
+    let notifySavedEventUpdates: Bool
+    let notifyNewReviews: Bool
+    let notifyBadges: Bool
+}
+
+struct NotificationPreferencesUpdateRequest: Encodable {
+    let notifyJoinApproved: Bool
+    let notifyJoinRejected: Bool
+    let notifyNewJoinRequest: Bool
+    let notifyHangoutCancelled: Bool
+    let notifyHangoutChanged: Bool
+    let notifyKicked: Bool
+    let notifySpaceAvailable: Bool
+    let notifyAmbitionMatches: Bool
+    let notifyMatchUpdates: Bool
+    let notifyEventStartingSoon: Bool
+    let notifyNewEvents: Bool
+    let notifySavedEventUpdates: Bool
+    let notifyNewReviews: Bool
+    let notifyBadges: Bool
 }
 
 private struct EventSoloJoinResponse: Decodable {
@@ -459,6 +561,7 @@ final class AppSessionStore: ObservableObject {
     private let authAPI: AuthAPIService
     private let profileAPI: ProfileAPIService
     private let discoverAPI: DiscoverAPIService
+    private let notificationsAPI: NotificationsAPIService
     private let tokenStore: AuthTokenStore
     private let defaults: UserDefaults
     private var hasBootstrapped = false
@@ -470,12 +573,14 @@ final class AppSessionStore: ObservableObject {
         authAPI: AuthAPIService = AuthAPIService(),
         profileAPI: ProfileAPIService = ProfileAPIService(),
         discoverAPI: DiscoverAPIService = DiscoverAPIService(),
+        notificationsAPI: NotificationsAPIService = NotificationsAPIService(),
         tokenStore: AuthTokenStore = AuthTokenStore(),
         defaults: UserDefaults = .standard
     ) {
         self.authAPI = authAPI
         self.profileAPI = profileAPI
         self.discoverAPI = discoverAPI
+        self.notificationsAPI = notificationsAPI
         self.tokenStore = tokenStore
         self.defaults = defaults
         self.isAuthenticated = defaults.bool(forKey: Self.isAuthenticatedKey)
@@ -574,6 +679,24 @@ final class AppSessionStore: ObservableObject {
         }
     }
 
+    func fetchMyCreatorEvents() async throws -> [CreatorEventFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchMyCreatorEvents(accessToken: accessToken)
+        }
+    }
+
+    func fetchMyCreatorVenues() async throws -> [CreatorVenueFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchMyCreatorVenues(accessToken: accessToken)
+        }
+    }
+
+    func fetchMyCreatorOffers() async throws -> [CreatorOfferFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchMyCreatorOffers(accessToken: accessToken)
+        }
+    }
+
     func joinEventSolo(id: Int) async throws {
         _ = try await authorizedCall { [self] accessToken in
             try await discoverAPI.joinEventSolo(id: id, accessToken: accessToken)
@@ -645,6 +768,49 @@ final class AppSessionStore: ObservableObject {
     func sendHangoutMessage(hangoutID: Int, message: String) async throws -> HangoutMessageFeedItem {
         try await authorizedCall { [self] accessToken in
             try await discoverAPI.sendHangoutMessage(hangoutID: hangoutID, message: message, accessToken: accessToken)
+        }
+    }
+
+    func fetchNotifications(unreadOnly: Bool = false) async throws -> [AppNotificationFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.fetchNotifications(unreadOnly: unreadOnly, accessToken: accessToken)
+        }
+    }
+
+    func markNotificationRead(id: Int) async throws -> AppNotificationFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.markNotificationRead(id: id, accessToken: accessToken)
+        }
+    }
+
+    func markAllNotificationsRead(ids: [Int]? = nil) async throws -> NotificationMarkAllReadResponse {
+        try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.markAllNotificationsRead(ids: ids, accessToken: accessToken)
+        }
+    }
+
+    func fetchUnreadNotificationCount() async throws -> Int {
+        let response = try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.fetchUnreadCount(accessToken: accessToken)
+        }
+        return response.unreadCount
+    }
+
+    func deleteNotification(id: Int) async throws {
+        _ = try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.deleteNotification(id: id, accessToken: accessToken)
+        } as EmptyResponse
+    }
+
+    func fetchNotificationPreferences() async throws -> NotificationPreferencesFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.fetchPreferences(accessToken: accessToken)
+        }
+    }
+
+    func updateNotificationPreferences(_ payload: NotificationPreferencesUpdateRequest) async throws -> NotificationPreferencesFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await notificationsAPI.updatePreferences(payload: payload, accessToken: accessToken)
         }
     }
 
@@ -1326,6 +1492,21 @@ private final class DiscoverAPIService {
         return try decode(OfferDetailFeedItem.self, from: data)
     }
 
+    func fetchMyCreatorEvents(accessToken: String) async throws -> [CreatorEventFeedItem] {
+        let data = try await request(path: "/api/events/mine/", accessToken: accessToken)
+        return try decode([CreatorEventFeedItem].self, from: data)
+    }
+
+    func fetchMyCreatorVenues(accessToken: String) async throws -> [CreatorVenueFeedItem] {
+        let data = try await request(path: "/api/venues/mine/", accessToken: accessToken)
+        return try decode([CreatorVenueFeedItem].self, from: data)
+    }
+
+    func fetchMyCreatorOffers(accessToken: String) async throws -> [CreatorOfferFeedItem] {
+        let data = try await request(path: "/api/offers/mine/", accessToken: accessToken)
+        return try decode([CreatorOfferFeedItem].self, from: data)
+    }
+
     func joinEventSolo(id: Int, accessToken: String) async throws -> EventSoloJoinResponse {
         let data = try await request(path: "/api/events/\(id)/join-solo/", method: "POST", accessToken: accessToken)
         return try decode(EventSoloJoinResponse.self, from: data)
@@ -1494,6 +1675,118 @@ private final class DiscoverAPIService {
         }
         if let firstArray = object.values.first(where: { $0 is [String] }) as? [String], !firstArray.isEmpty {
             return firstArray.joined(separator: ", ")
+        }
+        return nil
+    }
+}
+
+private final class NotificationsAPIService {
+    private let session: URLSession
+    private let decoder: JSONDecoder
+
+    init() {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieStorage = HTTPCookieStorage.shared
+        configuration.httpShouldSetCookies = true
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 30
+
+        session = URLSession(configuration: configuration)
+        decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+    }
+
+    func fetchNotifications(unreadOnly: Bool, accessToken: String) async throws -> [AppNotificationFeedItem] {
+        let suffix = unreadOnly ? "?unread_only=true" : ""
+        let data = try await request(path: "/api/notifications/\(suffix)", accessToken: accessToken)
+        return try decode([AppNotificationFeedItem].self, from: data)
+    }
+
+    func markNotificationRead(id: Int, accessToken: String) async throws -> AppNotificationFeedItem {
+        let data = try await request(path: "/api/notifications/\(id)/mark_read/", method: "POST", accessToken: accessToken)
+        return try decode(AppNotificationFeedItem.self, from: data)
+    }
+
+    func markAllNotificationsRead(ids: [Int]?, accessToken: String) async throws -> NotificationMarkAllReadResponse {
+        let body: Data?
+        if let ids, !ids.isEmpty {
+            body = try JSONEncoder().encode(["notification_ids": ids])
+        } else {
+            body = try JSONEncoder().encode([String: [Int]]())
+        }
+        let data = try await request(path: "/api/notifications/mark_all_read/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(NotificationMarkAllReadResponse.self, from: data)
+    }
+
+    func fetchUnreadCount(accessToken: String) async throws -> NotificationUnreadCountResponse {
+        let data = try await request(path: "/api/notifications/unread_count/", accessToken: accessToken)
+        return try decode(NotificationUnreadCountResponse.self, from: data)
+    }
+
+    func deleteNotification(id: Int, accessToken: String) async throws -> EmptyResponse {
+        let data = try await request(path: "/api/notifications/\(id)/", method: "DELETE", accessToken: accessToken)
+        if data.isEmpty { return EmptyResponse() }
+        return (try? decode(EmptyResponse.self, from: data)) ?? EmptyResponse()
+    }
+
+    func fetchPreferences(accessToken: String) async throws -> NotificationPreferencesFeedItem {
+        let data = try await request(path: "/api/notifications/notification-preferences/", accessToken: accessToken)
+        return try decode(NotificationPreferencesFeedItem.self, from: data)
+    }
+
+    func updatePreferences(payload: NotificationPreferencesUpdateRequest, accessToken: String) async throws -> NotificationPreferencesFeedItem {
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/notifications/notification-preferences/", method: "PATCH", body: body, accessToken: accessToken)
+        return try decode(NotificationPreferencesFeedItem.self, from: data)
+    }
+
+    private func request(path: String, method: String = "GET", body: Data? = nil, accessToken: String) async throws -> Data {
+        var request = URLRequest(url: AppConfig.url(for: path))
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AppSessionError.invalidResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200 ..< 300:
+            return data
+        case 401:
+            throw AppSessionError.unauthorized
+        default:
+            let message = decodeServerMessage(data: data) ?? "Unexpected error"
+            throw AppSessionError.httpStatus(httpResponse.statusCode, message)
+        }
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw AppSessionError.decodingFailed
+        }
+    }
+
+    private func decodeServerMessage(data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let detail = object["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+        if let error = object["error"] as? String, !error.isEmpty {
+            return error
+        }
+        if let message = object["message"] as? String, !message.isEmpty {
+            return message
         }
         return nil
     }

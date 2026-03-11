@@ -50,6 +50,8 @@ struct FriendZoneTests {
               "cover_image_url": null,
               "city_name": "Berlin",
               "location_name": "Canal Bar",
+              "lat": 52.5208,
+              "lng": 13.4095,
               "start_at": "2026-03-10T18:00:00Z",
               "end_at": "2026-03-10T20:00:00Z",
               "capacity": 6,
@@ -102,9 +104,107 @@ struct FriendZoneTests {
         #expect(hangout.id == 9)
         #expect(hangout.hostUsername == "hoster")
         #expect(hangout.cityName == "Berlin")
+        #expect(hangout.lat == 52.5208)
+        #expect(hangout.lng == 13.4095)
         #expect(hangout.sourceType == "event")
         #expect(hangout.participants.count == 2)
         #expect(hangout.joinRequests.first?.userUsername == "luca")
+    }
+
+    @Test func discoveryEventFeedDecodesOptionalCoordinates() throws {
+        let data = Data(
+            """
+            {
+              "id": 401,
+              "title": "Midnight Neo-Soul Jam",
+              "venue_name": "Neon Hall",
+              "city": "Berlin",
+              "city_place_id": "berlin-place",
+              "lat": 52.5176,
+              "lng": 13.4049,
+              "start_at": "2026-03-15T20:00:00Z",
+              "end_at": "2026-03-15T23:00:00Z",
+              "category": "Music",
+              "primary_image_url": null,
+              "creator": 7,
+              "creator_username": "neon",
+              "creator_display_name": "Neon Events",
+              "creator_avatar_url": null,
+              "spots_remaining": 18,
+              "hangouts_count": 4
+            }
+            """.utf8
+        )
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let event = try decoder.decode(DiscoveryEventFeedItem.self, from: data)
+
+        #expect(event.id == 401)
+        #expect(event.lat == 52.5176)
+        #expect(event.lng == 13.4049)
+        #expect(event.city == "Berlin")
+    }
+
+    @Test func notificationFeedDecodesBackendShape() throws {
+        let data = Data(
+            """
+            {
+              "id": 11,
+              "type": "join_approved",
+              "type_display": "Join Request Approved",
+              "title": "Join approved",
+              "message": "You were accepted in Sunset Rooftop Drinks",
+              "action_url": "/hangouts/77",
+              "related_hangout_id": 77,
+              "related_event_id": null,
+              "related_user_id": 5,
+              "read": false,
+              "read_at": null,
+              "created_at": "2026-03-11T09:00:00Z",
+              "time_ago": "hace 2 minutos"
+            }
+            """.utf8
+        )
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let notification = try decoder.decode(AppNotificationFeedItem.self, from: data)
+
+        #expect(notification.id == 11)
+        #expect(notification.type == "join_approved")
+        #expect(notification.relatedHangoutId == 77)
+        #expect(notification.read == false)
+        #expect(notification.timeAgo == "hace 2 minutos")
+    }
+
+    @Test func creatorVenueFeedDecodesBackendShape() throws {
+        let data = Data(
+            """
+            {
+              "id": 7001,
+              "name": "Mitte Bean Lab",
+              "category": "cafe",
+              "status": "active",
+              "city": "Berlin",
+              "address": "Rosenthaler Str. 21",
+              "total_hangouts": 22,
+              "total_offers": 5,
+              "total_people_reached": 318,
+              "is_verified": true
+            }
+            """.utf8
+        )
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let venue = try decoder.decode(CreatorVenueFeedItem.self, from: data)
+
+        #expect(venue.id == 7001)
+        #expect(venue.name == "Mitte Bean Lab")
+        #expect(venue.status == "active")
+        #expect(venue.totalOffers == 5)
+        #expect(venue.isVerified == true)
     }
 
     @Test func appConfigBuildsLocalAPIURL() {

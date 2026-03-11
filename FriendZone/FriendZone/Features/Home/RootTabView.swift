@@ -3,21 +3,36 @@ import MapKit
 import UIKit
 
 struct RootTabView: View {
+    @EnvironmentObject private var session: AppSessionStore
     @State private var selectedTab: AppTab = .hangouts
     @State private var mapRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 52.52, longitude: 13.405),
         span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
     )
-    @State private var selectedMapHangoutID: Int?
+    @State private var selectedMapSelectionID: String?
     @State private var mapHangouts: [HangoutItem] = HangoutsMockData.sample()
+    @State private var mapHangoutCoordinates: [Int: CLLocationCoordinate2D] = [:]
+    @State private var mapEvents: [HangoutsView.DiscoveryEventItem] = []
+    @State private var mapEventCoordinates: [Int: CLLocationCoordinate2D] = [:]
+    @State private var mapOffers: [HangoutsView.DiscoveryOfferItem] = []
+    @State private var mapOfferCoordinates: [Int: CLLocationCoordinate2D] = [:]
     @State private var mapJoinStatuses: [Int: HangoutJoinStatus] = [:]
     @State private var mapDetailHangout: HangoutItem?
+    @State private var mapEventDetail: HangoutsView.DiscoveryEventItem?
+    @State private var mapOfferDetail: HangoutsView.DiscoveryOfferItem?
+    @State private var mapPublicProfileRequest: MapPublicProfileRequest?
+    @State private var isPresentingMapCreate = false
+    @State private var pendingMapHangoutSource: HangoutSourceType = .hangout
+    @State private var pendingMapHangoutSourceLabel: String?
+    @State private var pendingMapHangoutSourceEventID: Int?
+    @State private var pendingMapHangoutSourceOfferID: Int?
     @State private var isShowingMapReportAcknowledgement = false
     @State private var isShowingMapBlurLift = false
     @State private var mapTransitionToken = 0
     @State private var lastTabForTransition: AppTab = .hangouts
     @State private var hasRestoredMapViewport = false
     @State private var openingMapDetailHangoutID: Int?
+    @State private var openingMapDetailSelectionID: String?
 
     @AppStorage("fz.maps.center.lat") private var storedMapCenterLat: Double = 52.52
     @AppStorage("fz.maps.center.lon") private var storedMapCenterLon: Double = 13.405
@@ -52,6 +67,7 @@ struct RootTabView: View {
             .ignoresSafeArea(.container, edges: [.bottom])
             .fullScreenCover(item: $mapDetailHangout, onDismiss: {
                 openingMapDetailHangoutID = nil
+                openingMapDetailSelectionID = nil
             }) { hangout in
                 NavigationStack {
                     HangoutDetailView(
@@ -64,6 +80,94 @@ struct RootTabView: View {
                             mapJoinStatuses[hangout.id] = HangoutJoinStatus.none
                         }
                     )
+                }
+                .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+            }
+            .fullScreenCover(item: $mapEventDetail, onDismiss: {
+                openingMapDetailSelectionID = nil
+            }) { event in
+                NavigationStack {
+                    NativeEventDetailView(
+                        event: event,
+                        creatorProfile: event.creatorProfile,
+                        onClose: { mapEventDetail = nil },
+                        onJoinSoloSuccess: { mapEventDetail = nil },
+                        onCreateHangout: {
+                            mapEventDetail = nil
+                            selectedTab = .hangouts
+                            pendingMapHangoutSource = .event
+                            pendingMapHangoutSourceLabel = event.title
+                            pendingMapHangoutSourceEventID = event.id
+                            pendingMapHangoutSourceOfferID = nil
+                            isPresentingMapCreate = true
+                        },
+                        onShowCreatorProfile: {
+                            mapPublicProfileRequest = MapPublicProfileRequest(
+                                profile: PublicProfileData(draft: event.creatorProfile),
+                                leadingText: "Event ",
+                                highlightText: "creator",
+                                subtitle: nil
+                            )
+                        }
+                    )
+                }
+                .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+            }
+            .fullScreenCover(item: $mapOfferDetail, onDismiss: {
+                openingMapDetailSelectionID = nil
+            }) { offer in
+                NavigationStack {
+                    NativeOfferDetailView(
+                        offer: offer,
+                        venueProfile: offer.venueProfile,
+                        onClose: { mapOfferDetail = nil },
+                        onJoinSolo: { mapOfferDetail = nil },
+                        onCreateHangout: {
+                            mapOfferDetail = nil
+                            selectedTab = .hangouts
+                            pendingMapHangoutSource = .offer
+                            pendingMapHangoutSourceLabel = offer.title
+                            pendingMapHangoutSourceEventID = nil
+                            pendingMapHangoutSourceOfferID = offer.id
+                            isPresentingMapCreate = true
+                        },
+                        onShowVenueProfile: {
+                            mapPublicProfileRequest = MapPublicProfileRequest(
+                                profile: PublicProfileData(draft: offer.venueProfile),
+                                leadingText: "Venue ",
+                                highlightText: "profile",
+                                subtitle: nil
+                            )
+                        }
+                    )
+                }
+                .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+            }
+            .fullScreenCover(isPresented: $isPresentingMapCreate) {
+                CreateHangoutView(
+                    onCancel: { isPresentingMapCreate = false },
+                    onCreate: { draft in
+                        try await createMapHangout(draft)
+                    },
+                    initialDraft: CreateHangoutDraft(
+                        sourceType: pendingMapHangoutSource,
+                        sourceLabel: pendingMapHangoutSourceLabel,
+                        sourceEventID: pendingMapHangoutSourceEventID,
+                        sourceOfferID: pendingMapHangoutSourceOfferID
+                    )
+                )
+                .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+            }
+            .sheet(item: $mapPublicProfileRequest) { request in
+                NavigationStack {
+                    PublicProfileView(
+                        profile: request.profile,
+                        leadingText: request.leadingText,
+                        highlightText: request.highlightText,
+                        subtitle: request.subtitle
+                    ) {
+                        mapPublicProfileRequest = nil
+                    }
                 }
                 .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
             }
@@ -93,6 +197,7 @@ struct RootTabView: View {
                         longitudeDelta: min(80, max(0.002, storedMapSpanLonDelta))
                     )
                 )
+                Task { await loadMapDiscoveryData() }
             }
             .onChange(of: mapRegion.center.latitude) { _ in
                 persistMapViewport()
@@ -118,8 +223,13 @@ struct RootTabView: View {
                 PersistentDiscoveryMapView(
                     region: $mapRegion,
                     hangouts: mapHangouts,
+                    hangoutCoordinates: mapHangoutCoordinates,
+                    events: mapEvents,
+                    eventCoordinates: mapEventCoordinates,
+                    offers: mapOffers,
+                    offerCoordinates: mapOfferCoordinates,
                     userCoordinate: userCoordinate,
-                    selectedHangoutID: $selectedMapHangoutID,
+                    selectedSelectionID: $selectedMapSelectionID,
                     isInteractive: showingMaps
                 )
                 .ignoresSafeArea()
@@ -162,29 +272,53 @@ struct RootTabView: View {
 
                     MapsOverlayView(
                         hangouts: mapHangouts,
-                        selectedHangout: selectedMapHangout,
+                        selectedItem: selectedMapItem,
                         openingDetailHangoutID: openingMapDetailHangoutID,
+                        openingDetailSelectionID: openingMapDetailSelectionID,
                         isActive: showingMaps,
                         onCloseSelection: {
-                            selectedMapHangoutID = nil
+                            selectedMapSelectionID = nil
                             openingMapDetailHangoutID = nil
+                            openingMapDetailSelectionID = nil
                         },
                         onLocateMe: {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 mapRegion.center = userCoordinate
                             }
                         },
-                        onOpenDetail: { hangout in
+                        onOpenHangoutDetail: { hangout in
                             FriendZoneHaptics.selection()
                             openingMapDetailHangoutID = hangout.id
+                            openingMapDetailSelectionID = "hangout-\(hangout.id)"
                             let openingID = hangout.id
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
                                 guard openingMapDetailHangoutID == openingID else { return }
                                 mapDetailHangout = hangout
                                 openingMapDetailHangoutID = nil
+                                openingMapDetailSelectionID = nil
                             }
                         },
-                        onReportHangout: { _ in
+                        onOpenEventDetail: { event in
+                            FriendZoneHaptics.selection()
+                            openingMapDetailSelectionID = "event-\(event.id)"
+                            let openingID = event.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                guard openingMapDetailSelectionID == "event-\(openingID)" else { return }
+                                mapEventDetail = event
+                                openingMapDetailSelectionID = nil
+                            }
+                        },
+                        onOpenOfferDetail: { offer in
+                            FriendZoneHaptics.selection()
+                            openingMapDetailSelectionID = "offer-\(offer.id)"
+                            let openingID = offer.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                guard openingMapDetailSelectionID == "offer-\(openingID)" else { return }
+                                mapOfferDetail = offer
+                                openingMapDetailSelectionID = nil
+                            }
+                        },
+                        onReportSelection: { _ in
                             FriendZoneHaptics.lightImpact()
                             isShowingMapReportAcknowledgement = true
                         }
@@ -204,8 +338,30 @@ struct RootTabView: View {
         }
     }
 
-    private var selectedMapHangout: HangoutItem? {
-        mapHangouts.first(where: { $0.id == selectedMapHangoutID })
+    private var selectedMapItem: SelectedMapDiscoveryItem? {
+        guard let selectedMapSelectionID else { return nil }
+        if
+            selectedMapSelectionID.hasPrefix("hangout-"),
+            let id = Int(selectedMapSelectionID.replacingOccurrences(of: "hangout-", with: "")),
+            let hangout = mapHangouts.first(where: { $0.id == id })
+        {
+            return .hangout(hangout)
+        }
+        if
+            selectedMapSelectionID.hasPrefix("event-"),
+            let id = Int(selectedMapSelectionID.replacingOccurrences(of: "event-", with: "")),
+            let event = mapEvents.first(where: { $0.id == id })
+        {
+            return .event(event)
+        }
+        if
+            selectedMapSelectionID.hasPrefix("offer-"),
+            let id = Int(selectedMapSelectionID.replacingOccurrences(of: "offer-", with: "")),
+            let offer = mapOffers.first(where: { $0.id == id })
+        {
+            return .offer(offer)
+        }
+        return nil
     }
 
     private func mapJoinStatus(for hangout: HangoutItem) -> HangoutJoinStatus {
@@ -273,6 +429,270 @@ struct RootTabView: View {
         }
     }
 
+    @MainActor
+    private func loadMapDiscoveryData() async {
+        async let hangoutsLoad: Void = loadMapHangouts()
+        async let eventsLoad: Void = loadMapEvents()
+        async let offersLoad: Void = loadMapOffers()
+        _ = await (hangoutsLoad, eventsLoad, offersLoad)
+    }
+
+    @MainActor
+    private func loadMapHangouts() async {
+        do {
+            let items = try await session.fetchHangouts()
+            let currentUserID = session.currentUser?.id
+            let mapped = items.compactMap { item -> HangoutItem? in
+                guard
+                    let startAt = parseServerDate(item.startAt),
+                    let endAt = parseServerDate(item.endAt)
+                else {
+                    return nil
+                }
+
+                let participantNames = item.participants
+                    .filter { $0.status.lowercased() == "approved" }
+                    .map(\.username)
+                let isJoined = item.participants.contains {
+                    $0.user == currentUserID && $0.status.lowercased() == "approved"
+                }
+
+                return HangoutItem(
+                    id: item.id,
+                    sourceType: mapSourceType(item.sourceType),
+                    title: item.title,
+                    description: item.description,
+                    vibe: mapVibe(item.vibe),
+                    cityName: item.cityName,
+                    locationName: item.locationName,
+                    hostName: item.host == currentUserID ? "you" : item.hostUsername,
+                    startAt: startAt,
+                    endAt: endAt,
+                    capacity: item.capacity,
+                    approvedCount: item.approvedParticipantsCount ?? participantNames.count,
+                    isLive: item.isLive,
+                    isMicro: item.isMicro,
+                    isJoined: isJoined || item.host == currentUserID,
+                    participantNames: participantNames,
+                    coverImageData: nil,
+                    coverSeed: item.id,
+                    distanceKm: 1.2,
+                    priceTier: .free
+                )
+            }
+
+            guard !mapped.isEmpty else { return }
+
+            mapHangouts = mapped.sorted { $0.startAt < $1.startAt }
+            mapHangoutCoordinates = Dictionary(
+                uniqueKeysWithValues: items.map { item in
+                    (
+                        item.id,
+                        resolvedCoordinate(
+                            lat: item.lat,
+                            lng: item.lng,
+                            city: item.cityName,
+                            seedKey: "hangout-\(item.id)-\(item.locationName ?? item.cityName)"
+                        )
+                    )
+                }
+            )
+            mapJoinStatuses = Dictionary(
+                uniqueKeysWithValues: mapped.map { item in
+                    (item.id, item.isJoined ? .joined : .none)
+                }
+            )
+        } catch {
+            // Keep mock state.
+        }
+    }
+
+    @MainActor
+    private func loadMapEvents() async {
+        do {
+            let items = try await session.fetchUpcomingEvents()
+            let mapped = items.compactMap(mapDiscoveryEvent)
+            guard !mapped.isEmpty else { return }
+
+            mapEvents = mapped.sorted { $0.startAt < $1.startAt }
+            mapEventCoordinates = Dictionary(
+                uniqueKeysWithValues: items.compactMap { item in
+                    guard mapped.contains(where: { $0.id == item.id }) else { return nil }
+                    return (
+                        item.id,
+                        resolvedCoordinate(
+                            lat: item.lat,
+                            lng: item.lng,
+                            city: item.city,
+                            seedKey: "event-\(item.id)-\(item.venueName ?? item.city ?? "event")"
+                        )
+                    )
+                }
+            )
+        } catch {
+            // Keep empty state.
+        }
+    }
+
+    @MainActor
+    private func loadMapOffers() async {
+        do {
+            let items = try await session.fetchActiveOffers()
+            let mapped = items.compactMap(mapDiscoveryOffer)
+            guard !mapped.isEmpty else { return }
+
+            mapOffers = mapped.sorted { $0.validUntil < $1.validUntil }
+            mapOfferCoordinates = Dictionary(
+                uniqueKeysWithValues: mapped.map { item in
+                    (
+                        item.id,
+                        resolvedCoordinate(
+                            lat: nil,
+                            lng: nil,
+                            city: item.venueProfile.city,
+                            seedKey: "offer-\(item.id)-\(item.venue)"
+                        )
+                    )
+                }
+            )
+        } catch {
+            // Keep empty state.
+        }
+    }
+
+    private func mapDiscoveryEvent(_ item: DiscoveryEventFeedItem) -> HangoutsView.DiscoveryEventItem? {
+        guard let startAt = parseServerDate(item.startAt) else { return nil }
+        let venue = item.venueName ?? item.city ?? "Event venue"
+        let displayName = item.creatorDisplayName ?? item.creatorUsername ?? "Event creator"
+        return HangoutsView.DiscoveryEventItem(
+            id: item.id,
+            title: item.title,
+            venue: venue,
+            startAt: startAt,
+            groups: max(item.hangoutsCount ?? 0, 1),
+            category: item.category ?? "Event",
+            creatorProfile: CreatorProfileDraft(
+                userID: item.creator,
+                displayName: displayName,
+                username: item.creatorUsername,
+                bio: "\(venue) · \(item.category ?? "Event")",
+                instagram: item.creatorUsername ?? "",
+                website: "",
+                city: item.city ?? "Berlin",
+                avatarURL: item.creatorAvatarUrl
+            ),
+            photoMoments: item.primaryImageUrl == nil ? [] : [
+                HangoutsView.EventPhotoMoment(
+                    id: item.id,
+                    title: "Event moment",
+                    subtitle: venue,
+                    symbol: "photo",
+                    palette: [Color(hex: "#171717"), Color(hex: "#525252"), Color(hex: "#A3A3A3")]
+                )
+            ]
+        )
+    }
+
+    private func mapDiscoveryOffer(_ item: DiscoveryOfferFeedItem) -> HangoutsView.DiscoveryOfferItem? {
+        guard let validUntil = parseServerDate(item.validUntil) else { return nil }
+        return HangoutsView.DiscoveryOfferItem(
+            id: item.id,
+            title: item.title,
+            venue: item.venueName ?? "Venue",
+            perk: item.perk,
+            validUntil: validUntil,
+            spotsLeft: max(item.spotsRemaining ?? 0, 0),
+            venueProfile: CreatorProfileDraft(
+                userID: item.owner,
+                displayName: item.venueName ?? (item.ownerUsername ?? "Venue"),
+                username: item.ownerUsername,
+                bio: item.description ?? "Venue offer available through FriendZone.",
+                instagram: item.ownerUsername ?? "",
+                website: "",
+                city: session.currentProfile?.cityName ?? "Berlin"
+            )
+        )
+    }
+
+    @MainActor
+    private func createMapHangout(_ draft: CreateHangoutDraft) async throws {
+        var normalized = draft
+        normalized.sourceLabel = pendingMapHangoutSourceLabel
+        normalized.sourceEventID = pendingMapHangoutSourceEventID
+        normalized.sourceOfferID = pendingMapHangoutSourceOfferID
+        _ = try await session.createHangout(from: normalized)
+        isPresentingMapCreate = false
+        await loadMapHangouts()
+    }
+
+    private func parseServerDate(_ raw: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) {
+            return date
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: raw)
+    }
+
+    private func mapSourceType(_ raw: String) -> HangoutSourceType {
+        switch raw.lowercased() {
+        case "event":
+            return .event
+        case "offer":
+            return .offer
+        default:
+            return .hangout
+        }
+    }
+
+    private func mapVibe(_ raw: String) -> HangoutVibe {
+        switch raw.lowercased() {
+        case "drinks":
+            return .drinks
+        case "sporty", "outdoors":
+            return .sporty
+        case "food":
+            return .foodie
+        case "creative", "culture", "board games":
+            return .activity
+        case "deep talks":
+            return .deepTalk
+        default:
+            return .chill
+        }
+    }
+
+    private func resolvedCoordinate(lat: Double?, lng: Double?, city: String?, seedKey: String) -> CLLocationCoordinate2D {
+        if let lat, let lng, abs(lat) <= 90, abs(lng) <= 180 {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        }
+
+        let cityAnchor = anchorCoordinate(for: city)
+        let hash = abs(seedKey.hashValue)
+        let latOffset = (Double(hash % 700) / 7000.0) - 0.05
+        let lonOffset = (Double((hash / 700) % 700) / 7000.0) - 0.05
+        return CLLocationCoordinate2D(
+            latitude: cityAnchor.latitude + latOffset,
+            longitude: cityAnchor.longitude + lonOffset
+        )
+    }
+
+    private func anchorCoordinate(for city: String?) -> CLLocationCoordinate2D {
+        switch (city ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "munich", "münchen":
+            return CLLocationCoordinate2D(latitude: 48.1374, longitude: 11.5755)
+        case "madrid":
+            return CLLocationCoordinate2D(latitude: 40.4168, longitude: -3.7038)
+        case "barcelona":
+            return CLLocationCoordinate2D(latitude: 41.3874, longitude: 2.1686)
+        case "london":
+            return CLLocationCoordinate2D(latitude: 51.5072, longitude: -0.1276)
+        default:
+            return CLLocationCoordinate2D(latitude: 52.52, longitude: 13.405)
+        }
+    }
+
     private func persistMapViewport() {
         let lat = mapRegion.center.latitude
         let lon = mapRegion.center.longitude
@@ -301,13 +721,20 @@ struct RootTabView_Previews: PreviewProvider {
 private struct PersistentDiscoveryMapView: View {
     @Binding var region: MKCoordinateRegion
     let hangouts: [HangoutItem]
+    let hangoutCoordinates: [Int: CLLocationCoordinate2D]
+    let events: [HangoutsView.DiscoveryEventItem]
+    let eventCoordinates: [Int: CLLocationCoordinate2D]
+    let offers: [HangoutsView.DiscoveryOfferItem]
+    let offerCoordinates: [Int: CLLocationCoordinate2D]
     let userCoordinate: CLLocationCoordinate2D
-    @Binding var selectedHangoutID: Int?
+    @Binding var selectedSelectionID: String?
     let isInteractive: Bool
 
     private var markers: [DiscoveryMapMarker] {
         var items = [DiscoveryMapMarker.user(coordinate: userCoordinate)]
         items.append(contentsOf: clusteredHangoutMarkers())
+        items.append(contentsOf: eventMarkers())
+        items.append(contentsOf: offerMarkers())
         return items
     }
 
@@ -323,9 +750,26 @@ private struct PersistentDiscoveryMapView: View {
                     userMarker
                 case let .hangout(id, vibe, isToday):
                     Button {
-                        selectedHangoutID = (selectedHangoutID == id) ? nil : id
+                        let selectionID = "hangout-\(id)"
+                        selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
                     } label: {
                         hangoutMarker(vibe: vibe, isToday: isToday)
+                    }
+                    .buttonStyle(.plain)
+                case let .event(id, category):
+                    Button {
+                        let selectionID = "event-\(id)"
+                        selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
+                    } label: {
+                        eventMarker(category: category)
+                    }
+                    .buttonStyle(.plain)
+                case let .offer(id, isHot):
+                    Button {
+                        let selectionID = "offer-\(id)"
+                        selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
+                    } label: {
+                        offerMarker(isHot: isHot)
                     }
                     .buttonStyle(.plain)
                 case let .cluster(count, vibe, isToday, hangoutIDs):
@@ -340,7 +784,8 @@ private struct PersistentDiscoveryMapView: View {
                                 )
                             }
                         } else if let firstID = hangoutIDs.first {
-                            selectedHangoutID = (selectedHangoutID == firstID) ? nil : firstID
+                            let selectionID = "hangout-\(firstID)"
+                            selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
                         }
                     } label: {
                         clusterMarker(count: count, vibe: vibe, isToday: isToday)
@@ -349,7 +794,7 @@ private struct PersistentDiscoveryMapView: View {
                 }
             }
         }
-        .onChange(of: selectedHangoutID) { id in
+        .onChange(of: selectedSelectionID) { id in
             guard let id else { return }
             withAnimation(.easeInOut(duration: 0.22)) {
                 region.center = coordinate(for: id)
@@ -452,12 +897,91 @@ private struct PersistentDiscoveryMapView: View {
         }
     }
 
-    private func coordinate(for id: Int) -> CLLocationCoordinate2D {
-        let seed = Double((id % 9) + 1)
-        return CLLocationCoordinate2D(
-            latitude: 52.52 + (seed * 0.005) - 0.02,
-            longitude: 13.40 + (seed * 0.006) - 0.02
-        )
+    private func eventMarker(category: String) -> some View {
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "#0E7490"), Color(hex: "#155E75")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 42, height: 42)
+                .overlay {
+                    Image(systemName: eventSymbol(for: category))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color.white, lineWidth: 3)
+                }
+                .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 3)
+
+            Circle()
+                .fill(Color.white.opacity(0.92))
+                .frame(width: 14, height: 14)
+                .overlay {
+                    Image(systemName: "ticket.fill")
+                        .font(.system(size: 7, weight: .black))
+                        .foregroundColor(Color(hex: "#0E7490"))
+                }
+                .offset(x: 6, y: -6)
+        }
+    }
+
+    private func offerMarker(isHot: Bool) -> some View {
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "#F59E0B"), Color(hex: "#B45309")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 42, height: 42)
+                .overlay {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white, lineWidth: 3)
+                }
+                .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 3)
+
+            if isHot {
+                Circle()
+                    .fill(Color(hex: "#FF3B30"))
+                    .frame(width: 10, height: 10)
+                    .overlay {
+                        Circle().stroke(Color.white, lineWidth: 2)
+                    }
+                    .offset(x: 8, y: -6)
+            }
+        }
+    }
+
+    private func coordinate(for selectionID: String) -> CLLocationCoordinate2D {
+        if selectionID.hasPrefix("hangout-"),
+           let id = Int(selectionID.replacingOccurrences(of: "hangout-", with: "")),
+           let coordinate = hangoutCoordinates[id] {
+            return coordinate
+        }
+        if selectionID.hasPrefix("event-"),
+           let id = Int(selectionID.replacingOccurrences(of: "event-", with: "")),
+           let coordinate = eventCoordinates[id] {
+            return coordinate
+        }
+        if selectionID.hasPrefix("offer-"),
+           let id = Int(selectionID.replacingOccurrences(of: "offer-", with: "")),
+           let coordinate = offerCoordinates[id] {
+            return coordinate
+        }
+        return userCoordinate
     }
 
     private func clusteredHangoutMarkers() -> [DiscoveryMapMarker] {
@@ -471,7 +995,10 @@ private struct PersistentDiscoveryMapView: View {
         let lonCell = max(0.004, region.span.longitudeDelta / 8)
 
         let points = hangouts.map { hangout in
-            Point(hangout: hangout, coordinate: coordinate(for: hangout.id))
+            Point(
+                hangout: hangout,
+                coordinate: hangoutCoordinates[hangout.id] ?? userCoordinate
+            )
         }
 
         for point in points {
@@ -518,6 +1045,29 @@ private struct PersistentDiscoveryMapView: View {
         return markers
     }
 
+    private func eventMarkers() -> [DiscoveryMapMarker] {
+        events.compactMap { event in
+            guard let coordinate = eventCoordinates[event.id] else { return nil }
+            return .event(
+                id: event.id,
+                coordinate: coordinate,
+                category: event.category
+            )
+        }
+    }
+
+    private func offerMarkers() -> [DiscoveryMapMarker] {
+        let now = Date()
+        return offers.compactMap { offer in
+            guard let coordinate = offerCoordinates[offer.id] else { return nil }
+            return .offer(
+                id: offer.id,
+                coordinate: coordinate,
+                isHot: offer.validUntil.timeIntervalSince(now) < 60 * 60 * 12
+            )
+        }
+    }
+
     private func vibeColor(_ vibe: HangoutVibe) -> Color {
         switch vibe {
         case .chill: return Color(hex: "#667EEA")
@@ -539,17 +1089,37 @@ private struct PersistentDiscoveryMapView: View {
         case .sporty: return "⚽"
         }
     }
+
+    private func eventSymbol(for category: String) -> String {
+        switch category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "music", "party":
+            return "music.mic"
+        case "networking", "tech":
+            return "person.3.fill"
+        case "culture", "art":
+            return "paintpalette.fill"
+        case "food":
+            return "fork.knife"
+        case "sports", "sport":
+            return "figure.run"
+        default:
+            return "calendar"
+        }
+    }
 }
 
 private struct MapsOverlayView: View {
     let hangouts: [HangoutItem]
-    let selectedHangout: HangoutItem?
+    let selectedItem: SelectedMapDiscoveryItem?
     let openingDetailHangoutID: Int?
+    let openingDetailSelectionID: String?
     let isActive: Bool
     let onCloseSelection: () -> Void
     let onLocateMe: () -> Void
-    let onOpenDetail: (HangoutItem) -> Void
-    let onReportHangout: (HangoutItem) -> Void
+    let onOpenHangoutDetail: (HangoutItem) -> Void
+    let onOpenEventDetail: (HangoutsView.DiscoveryEventItem) -> Void
+    let onOpenOfferDetail: (HangoutsView.DiscoveryOfferItem) -> Void
+    let onReportSelection: (SelectedMapDiscoveryItem) -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -563,11 +1133,8 @@ private struct MapsOverlayView: View {
                 .offset(y: isActive ? 0 : -8)
                 .animation(.easeOut(duration: 0.24), value: isActive)
 
-                if let selectedHangout {
-                    markerMiniPreview(
-                        selectedHangout,
-                        isOpeningDetail: openingDetailHangoutID == selectedHangout.id
-                    )
+                if let selectedItem {
+                    markerMiniPreview(selectedItem)
                         .padding(.horizontal, 16)
                         .padding(.bottom, max(90, bottomInset + 72))
                         .frame(maxHeight: .infinity, alignment: .bottom)
@@ -597,7 +1164,7 @@ private struct MapsOverlayView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.trailing, 16)
-                        .padding(.bottom, max(selectedHangout == nil ? 96 : 188, bottomInset + 74))
+                        .padding(.bottom, max(selectedItem == nil ? 96 : 188, bottomInset + 74))
                         .opacity(isActive ? 1 : 0)
                         .offset(y: isActive ? 0 : 12)
                         .animation(.easeOut(duration: 0.24), value: isActive)
@@ -606,7 +1173,7 @@ private struct MapsOverlayView: View {
             }
             .background(Color.clear)
             .animation(.easeOut(duration: 0.24), value: isActive)
-            .animation(.easeOut(duration: 0.2), value: selectedHangout?.id)
+            .animation(.easeOut(duration: 0.2), value: selectedItem?.id)
         }
     }
 
@@ -627,7 +1194,28 @@ private struct MapsOverlayView: View {
         .padding(.top, topInset + 12)
     }
 
-    private func markerMiniPreview(_ hangout: HangoutItem, isOpeningDetail: Bool) -> some View {
+    @ViewBuilder
+    private func markerMiniPreview(_ item: SelectedMapDiscoveryItem) -> some View {
+        switch item {
+        case let .hangout(hangout):
+            hangoutMiniPreview(
+                hangout,
+                isOpeningDetail: openingDetailHangoutID == hangout.id
+            )
+        case let .event(event):
+            eventMiniPreview(
+                event,
+                isOpeningDetail: openingDetailSelectionID == item.id
+            )
+        case let .offer(offer):
+            offerMiniPreview(
+                offer,
+                isOpeningDetail: openingDetailSelectionID == item.id
+            )
+        }
+    }
+
+    private func hangoutMiniPreview(_ hangout: HangoutItem, isOpeningDetail: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 previewThumbnail(hangout)
@@ -678,7 +1266,7 @@ private struct MapsOverlayView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    onOpenDetail(hangout)
+                    onOpenHangoutDetail(hangout)
                 } label: {
                     Text("View details")
                         .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
@@ -692,8 +1280,154 @@ private struct MapsOverlayView: View {
                 .disabled(isOpeningDetail)
 
                 Button {
-                    onReportHangout(hangout)
+                    onReportSelection(.hangout(hangout))
                 } label: {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.error)
+                        .frame(width: 38, height: 36)
+                        .background(FriendZoneTheme.Colors.error.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(FriendZoneTheme.Colors.error.opacity(0.24), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(isOpeningDetail)
+            }
+        }
+        .padding(11)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+        .friendZoneShadow(FriendZoneTheme.Shadows.md)
+        .scaleEffect(isOpeningDetail ? 0.97 : 1.0)
+        .opacity(isOpeningDetail ? 0.34 : 1.0)
+        .blur(radius: isOpeningDetail ? 1.8 : 0)
+        .animation(.easeInOut(duration: 0.16), value: isOpeningDetail)
+    }
+
+    private func eventMiniPreview(_ event: HangoutsView.DiscoveryEventItem, isOpeningDetail: Bool) -> some View {
+        previewShell(
+            eyebrow: event.category.uppercased(),
+            title: event.title,
+            subtitle: event.venue,
+            chips: [
+                ("calendar", eventDateLabel(event.startAt)),
+                ("clock.fill", timeLabel(event.startAt)),
+                ("person.3.fill", "\(event.groups) groups")
+            ],
+            accent: Color(hex: "#0E7490"),
+            isOpeningDetail: isOpeningDetail,
+            onPrimary: { onOpenEventDetail(event) },
+            onReport: { onReportSelection(.event(event)) }
+        )
+    }
+
+    private func offerMiniPreview(_ offer: HangoutsView.DiscoveryOfferItem, isOpeningDetail: Bool) -> some View {
+        previewShell(
+            eyebrow: "VOUCHER",
+            title: offer.title,
+            subtitle: offer.venue,
+            chips: [
+                ("gift.fill", offer.perk),
+                ("clock.badge", "Until \(eventDateLabel(offer.validUntil))"),
+                ("tag.fill", offer.spotsLeft > 0 ? "\(offer.spotsLeft) left" : "Full")
+            ],
+            accent: Color(hex: "#B45309"),
+            isOpeningDetail: isOpeningDetail,
+            onPrimary: { onOpenOfferDetail(offer) },
+            onReport: { onReportSelection(.offer(offer)) }
+        )
+    }
+
+    private func previewShell(
+        eyebrow: String,
+        title: String,
+        subtitle: String,
+        chips: [(String, String)],
+        accent: Color,
+        isOpeningDetail: Bool,
+        onPrimary: @escaping () -> Void,
+        onReport: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [accent.opacity(0.92), accent.opacity(0.66)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 66, height: 66)
+                    .overlay {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white.opacity(0.92))
+                    }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(eyebrow)
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                        .foregroundColor(accent)
+                        .lineLimit(1)
+
+                    Text(title)
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .lineLimit(2)
+
+                    Text(subtitle)
+                        .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Button(action: onCloseSelection) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                        .frame(width: 28, height: 28)
+                        .background(Color.black.opacity(0.08))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(chips, id: \.1) { chip in
+                        mapMetaChip(icon: chip.0, text: chip.1)
+                    }
+                }
+            }
+            .scrollDisabled(true)
+            .allowsHitTesting(false)
+
+            HStack(spacing: 8) {
+                Button(action: onPrimary) {
+                    Text("View details")
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background(accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(isOpeningDetail)
+
+                Button(action: onReport) {
                     Image(systemName: "flag.fill")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.error)
@@ -779,6 +1513,12 @@ private struct MapsOverlayView: View {
         return formatter.string(from: value)
     }
 
+    private func eventDateLabel(_ value: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d"
+        return formatter.string(from: value)
+    }
+
     private func vibeColor(_ vibe: HangoutVibe) -> Color {
         switch vibe {
         case .chill: return Color(hex: "#667EEA")
@@ -802,10 +1542,37 @@ private struct MapsOverlayView: View {
     }
 }
 
+private enum SelectedMapDiscoveryItem: Identifiable {
+    case hangout(HangoutItem)
+    case event(HangoutsView.DiscoveryEventItem)
+    case offer(HangoutsView.DiscoveryOfferItem)
+
+    var id: String {
+        switch self {
+        case let .hangout(hangout):
+            return "hangout-\(hangout.id)"
+        case let .event(event):
+            return "event-\(event.id)"
+        case let .offer(offer):
+            return "offer-\(offer.id)"
+        }
+    }
+}
+
+private struct MapPublicProfileRequest: Identifiable {
+    let id = UUID()
+    let profile: PublicProfileData
+    let leadingText: String
+    let highlightText: String
+    let subtitle: String?
+}
+
 private struct DiscoveryMapMarker: Identifiable {
     enum Kind {
         case user
         case hangout(id: Int, vibe: HangoutVibe, isToday: Bool)
+        case event(id: Int, category: String)
+        case offer(id: Int, isHot: Bool)
         case cluster(count: Int, vibe: HangoutVibe, isToday: Bool, hangoutIDs: [Int])
     }
 
@@ -819,6 +1586,14 @@ private struct DiscoveryMapMarker: Identifiable {
 
     static func hangout(id: Int, coordinate: CLLocationCoordinate2D, vibe: HangoutVibe, isToday: Bool) -> DiscoveryMapMarker {
         DiscoveryMapMarker(id: id, coordinate: coordinate, kind: .hangout(id: id, vibe: vibe, isToday: isToday))
+    }
+
+    static func event(id: Int, coordinate: CLLocationCoordinate2D, category: String) -> DiscoveryMapMarker {
+        DiscoveryMapMarker(id: 100_000 + id, coordinate: coordinate, kind: .event(id: id, category: category))
+    }
+
+    static func offer(id: Int, coordinate: CLLocationCoordinate2D, isHot: Bool) -> DiscoveryMapMarker {
+        DiscoveryMapMarker(id: 200_000 + id, coordinate: coordinate, kind: .offer(id: id, isHot: isHot))
     }
 
     static func cluster(
