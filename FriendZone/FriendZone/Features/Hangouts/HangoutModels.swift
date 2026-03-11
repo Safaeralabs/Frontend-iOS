@@ -1,6 +1,6 @@
 import Foundation
 
-enum HangoutSourceType: String, CaseIterable {
+enum HangoutSourceType: String, CaseIterable, Sendable {
     case hangout
     case offer
     case event
@@ -14,7 +14,7 @@ enum HangoutSourceType: String, CaseIterable {
     }
 }
 
-enum HangoutVibe: String, CaseIterable {
+enum HangoutVibe: String, CaseIterable, Sendable {
     case chill
     case drinks
     case deepTalk
@@ -66,7 +66,7 @@ enum HangoutsTimelineTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum HangoutVisibilityOption: String, CaseIterable {
+enum HangoutVisibilityOption: String, CaseIterable, Sendable {
     case `public`
     case inviteOnly
 
@@ -78,7 +78,7 @@ enum HangoutVisibilityOption: String, CaseIterable {
     }
 }
 
-enum HangoutGenderPreference: String, CaseIterable {
+enum HangoutGenderPreference: String, CaseIterable, Sendable {
     case any
     case womenOnly
     case menOnly
@@ -183,6 +183,124 @@ struct CreateHangoutDraft {
     var sourceOfferID: Int? = nil
     var coverImageData: Data? = nil
     var coverSeed: Int = 0
+}
+
+struct CreateHangoutSubmission: Sendable {
+    let title: String
+    let description: String
+    let vibe: HangoutVibe
+    let languages: [String]
+    let locationName: String
+    let locationAddress: String
+    let cityName: String
+    let cityPlaceID: String
+    let latitude: Double?
+    let longitude: Double?
+    let startAt: Date
+    let durationHours: Int
+    let isTimeFlexible: Bool
+    let capacity: Int
+    let isCapacityUnlimited: Bool
+    let visibility: HangoutVisibilityOption
+    let inviteCode: String
+    let genderPreference: HangoutGenderPreference
+    let audienceTags: [String]
+    let isMicro: Bool
+    let isLive: Bool
+    let sourceType: HangoutSourceType
+    let sourceLabel: String?
+    let sourceEventID: Int?
+    let sourceOfferID: Int?
+    let coverImageData: Data?
+    let coverSeed: Int
+
+    init(
+        title: String,
+        description: String,
+        vibe: HangoutVibe,
+        languages: [String],
+        locationName: String,
+        locationAddress: String,
+        cityName: String,
+        cityPlaceID: String,
+        latitude: Double?,
+        longitude: Double?,
+        startAt: Date,
+        durationHours: Int,
+        isTimeFlexible: Bool,
+        capacity: Int,
+        isCapacityUnlimited: Bool,
+        visibility: HangoutVisibilityOption,
+        inviteCode: String,
+        genderPreference: HangoutGenderPreference,
+        audienceTags: [String],
+        isMicro: Bool,
+        isLive: Bool,
+        sourceType: HangoutSourceType,
+        sourceLabel: String?,
+        sourceEventID: Int?,
+        sourceOfferID: Int?,
+        coverImageData: Data?,
+        coverSeed: Int
+    ) {
+        self.title = title
+        self.description = description
+        self.vibe = vibe
+        self.languages = languages
+        self.locationName = locationName
+        self.locationAddress = locationAddress
+        self.cityName = cityName
+        self.cityPlaceID = cityPlaceID
+        self.latitude = latitude
+        self.longitude = longitude
+        self.startAt = startAt
+        self.durationHours = durationHours
+        self.isTimeFlexible = isTimeFlexible
+        self.capacity = capacity
+        self.isCapacityUnlimited = isCapacityUnlimited
+        self.visibility = visibility
+        self.inviteCode = inviteCode
+        self.genderPreference = genderPreference
+        self.audienceTags = audienceTags
+        self.isMicro = isMicro
+        self.isLive = isLive
+        self.sourceType = sourceType
+        self.sourceLabel = sourceLabel
+        self.sourceEventID = sourceEventID
+        self.sourceOfferID = sourceOfferID
+        self.coverImageData = coverImageData
+        self.coverSeed = coverSeed
+    }
+
+    init(draft: CreateHangoutDraft) {
+        title = String(draft.title)
+        description = String(draft.description)
+        vibe = draft.vibe
+        languages = draft.languages.map { String($0) }
+        locationName = String(draft.locationName)
+        locationAddress = String(draft.locationAddress)
+        cityName = String(draft.cityName)
+        cityPlaceID = String(draft.cityPlaceID)
+        latitude = draft.latitude
+        longitude = draft.longitude
+        startAt = draft.startAt
+        durationHours = draft.durationHours
+        isTimeFlexible = draft.isTimeFlexible
+        capacity = draft.capacity
+        isCapacityUnlimited = draft.isCapacityUnlimited
+        visibility = draft.visibility
+        inviteCode = String(draft.inviteCode)
+        genderPreference = draft.genderPreference
+        audienceTags = draft.audienceTags.map { String($0) }
+        isMicro = draft.isMicro
+        isLive = draft.isLive
+        sourceType = draft.sourceType
+        sourceLabel = draft.sourceLabel.map { String($0) }
+        sourceEventID = draft.sourceEventID
+        sourceOfferID = draft.sourceOfferID
+        coverImageData = draft.coverImageData.map { Data($0) }
+        coverSeed = draft.coverSeed
+    }
 }
 
 struct HangoutItem: Identifiable {

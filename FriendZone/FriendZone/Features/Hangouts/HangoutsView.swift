@@ -31,6 +31,7 @@ struct HangoutsView: View {
     @State private var animateDayDots = false
     @State private var backendEvents: [DiscoveryEventItem] = []
     @State private var backendOffers: [DiscoveryOfferItem] = []
+    @State private var discoveryErrorMessage: String?
     @State private var shouldRefreshHangoutsOnAppear = false
     @StateObject private var creatorContext = SettingsCreatorContextViewModel()
 
@@ -83,141 +84,6 @@ struct HangoutsView: View {
         let venueProfile: CreatorProfileDraft
     }
 
-    private var mockEvents: [DiscoveryEventItem] {
-        [
-            DiscoveryEventItem(
-                id: 401,
-                title: "Midnight Neo-Soul Jam",
-                venue: "Neon Hall",
-                startAt: Date().addingTimeInterval(60 * 60 * 2),
-                groups: 8,
-                category: "Music",
-                creatorProfile: CreatorProfileDraft(
-                    displayName: "Neon Events",
-                    bio: "Curating late-night live sets with soulful grooves.",
-                    instagram: "neonevents",
-                    website: "https://neonevents.com",
-                    city: "Berlin"
-                ),
-                photoMoments: [
-                    EventPhotoMoment(
-                        id: 1,
-                        title: "Main Stage Glow",
-                        subtitle: "Warm lights, live crowd, intimate room.",
-                        symbol: "music.mic",
-                        palette: [Color(hex: "#25103D"), Color(hex: "#8B5CF6"), Color(hex: "#F59E0B")]
-                    ),
-                    EventPhotoMoment(
-                        id: 2,
-                        title: "After Hours Booths",
-                        subtitle: "Lounges and small circles for real conversation.",
-                        symbol: "sparkles.tv",
-                        palette: [Color(hex: "#101826"), Color(hex: "#0EA5E9"), Color(hex: "#38BDF8")]
-                    )
-                ]
-            ),
-            DiscoveryEventItem(
-                id: 402,
-                title: "Street Art Walk",
-                venue: "East Side Gallery",
-                startAt: Date().addingTimeInterval(60 * 60 * 26),
-                groups: 5,
-                category: "Culture",
-                creatorProfile: CreatorProfileDraft(
-                    displayName: "East Side Curators",
-                    bio: "Guided walks blending murals and conversation.",
-                    instagram: "eastsidecurators",
-                    website: "https://eastsidegallery.berlin",
-                    city: "Berlin"
-                ),
-                photoMoments: []
-            ),
-            DiscoveryEventItem(
-                id: 403,
-                title: "Startup Open Mic",
-                venue: "Werk Loft",
-                startAt: Date().addingTimeInterval(60 * 60 * 50),
-                groups: 12,
-                category: "Networking",
-                creatorProfile: CreatorProfileDraft(
-                    displayName: "Werk Community",
-                    bio: "Matchmaking founders and storytellers in micro-sessions.",
-                    instagram: "werkcommunity",
-                    website: "https://werkcommunity.io",
-                    city: "Berlin"
-                ),
-                photoMoments: [
-                    EventPhotoMoment(
-                        id: 3,
-                        title: "Pitch Corner",
-                        subtitle: "Short founder intros, quick feedback, strong energy.",
-                        symbol: "megaphone.fill",
-                        palette: [Color(hex: "#0F172A"), Color(hex: "#10B981"), Color(hex: "#34D399")]
-                    ),
-                    EventPhotoMoment(
-                        id: 4,
-                        title: "Community Tables",
-                        subtitle: "Tables designed for mingling after each round.",
-                        symbol: "person.3.fill",
-                        palette: [Color(hex: "#1E1B4B"), Color(hex: "#EC4899"), Color(hex: "#F59E0B")]
-                    )
-                ]
-            )
-        ]
-        .sorted { $0.startAt < $1.startAt }
-    }
-
-    private var mockOffers: [DiscoveryOfferItem] {
-        [
-            DiscoveryOfferItem(
-                id: 701,
-                title: "2x1 Matcha Before 6PM",
-                venue: "Mitte Bean Lab",
-                perk: "Show FriendZone code at counter",
-                validUntil: Date().addingTimeInterval(60 * 60 * 8),
-                spotsLeft: 14,
-                venueProfile: CreatorProfileDraft(
-                    displayName: "Mitte Bean Lab",
-                    bio: "The neighborhood cafe that fuels friend meetups and slow work sprints.",
-                    instagram: "mittebeanlab",
-                    website: "https://mittebean.lab",
-                    city: "Berlin"
-                )
-            ),
-            DiscoveryOfferItem(
-                id: 702,
-                title: "Rooftop Entry + Drink",
-                venue: "Skyline Terrace",
-                perk: "Fast lane + welcome cocktail",
-                validUntil: Date().addingTimeInterval(60 * 60 * 30),
-                spotsLeft: 6,
-                venueProfile: CreatorProfileDraft(
-                    displayName: "Skyline Terrace",
-                    bio: "Curated rooftops, craft cocktails, and community tables.",
-                    instagram: "skyline.terrace",
-                    website: "https://skyline-terrace.com",
-                    city: "Berlin"
-                )
-            ),
-            DiscoveryOfferItem(
-                id: 703,
-                title: "Late Ramen Set",
-                venue: "Ramen Shiro",
-                perk: "Noodles + iced tea combo",
-                validUntil: Date().addingTimeInterval(60 * 60 * 55),
-                spotsLeft: 18,
-                venueProfile: CreatorProfileDraft(
-                    displayName: "Ramen Shiro",
-                    bio: "Late-night ramen rituals in Mitte with moody lighting.",
-                    instagram: "ramenshiro",
-                    website: "https://ramenshiro.berlin",
-                    city: "Berlin"
-                )
-            )
-        ]
-        .sorted { $0.validUntil < $1.validUntil }
-    }
-
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             backdrop
@@ -242,8 +108,8 @@ struct HangoutsView: View {
             await loadDiscoveryContent()
             await loadBackendHangouts()
         }
-        .onAppear {
-            guard shouldRefreshHangoutsOnAppear else { return }
+        .onChange(of: isPresentingCreate) { isPresented in
+            guard !isPresented, shouldRefreshHangoutsOnAppear else { return }
             shouldRefreshHangoutsOnAppear = false
             Task { await loadBackendHangouts() }
         }
@@ -253,10 +119,12 @@ struct HangoutsView: View {
         .fullScreenCover(isPresented: $isPresentingCreate) {
             CreateHangoutView(
                 onCancel: { isPresentingCreate = false },
-                onCreate: { draft in
-                    try await createHangout(draft)
+                onCreate: { submission in
+                    try await createHangout(submission)
                 },
                 initialDraft: CreateHangoutDraft(
+                    cityName: session.currentProfile?.cityName ?? "",
+                    cityPlaceID: session.currentProfile?.cityPlaceId ?? "",
                     sourceType: pendingHangoutSource,
                     sourceLabel: pendingHangoutSourceLabel,
                     sourceEventID: pendingHangoutSourceEventID,
@@ -432,14 +300,17 @@ struct HangoutsView: View {
     }
 
     private var discoveryEvents: [DiscoveryEventItem] {
-        backendEvents.isEmpty ? mockEvents : backendEvents
+        backendEvents
     }
 
     private var discoveryOffers: [DiscoveryOfferItem] {
-        backendOffers.isEmpty ? mockOffers : backendOffers
+        backendOffers
     }
 
     private func loadDiscoveryContent() async {
+        await MainActor.run {
+            discoveryErrorMessage = nil
+        }
         async let eventsLoad: Void = loadEvents()
         async let offersLoad: Void = loadOffers()
         _ = await (eventsLoad, offersLoad)
@@ -453,7 +324,10 @@ struct HangoutsView: View {
                 backendEvents = mapped.sorted { $0.startAt < $1.startAt }
             }
         } catch {
-            // Keep mocks as fallback.
+            await MainActor.run {
+                backendEvents = []
+                discoveryErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -465,7 +339,10 @@ struct HangoutsView: View {
                 backendOffers = mapped.sorted { $0.validUntil < $1.validUntil }
             }
         } catch {
-            // Keep mocks as fallback.
+            await MainActor.run {
+                backendOffers = []
+                discoveryErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -538,7 +415,6 @@ struct HangoutsView: View {
         do {
             let items = try await session.fetchHangouts()
             let mapped = items.compactMap(mapHangoutFeed)
-            guard !mapped.isEmpty else { return }
 
             let requestedIDs = Set(
                 items.compactMap { item in
@@ -555,7 +431,7 @@ struct HangoutsView: View {
                 requestedIDs: requestedIDs
             )
         } catch {
-            // Keep mock feed as fallback.
+            viewModel.replaceHangouts([], requestedIDs: [])
         }
     }
 
@@ -628,18 +504,42 @@ struct HangoutsView: View {
     }
 
     @MainActor
-    private func createHangout(_ draft: CreateHangoutDraft) async throws {
-        let normalizedDraft = normalizedCreateDraft(draft)
-        _ = try await session.createHangout(from: normalizedDraft)
-        await loadBackendHangouts()
+    private func createHangout(_ submission: CreateHangoutSubmission) async throws {
+        let normalizedSubmission = normalizedCreateSubmission(submission)
+        _ = try await session.createHangout(from: normalizedSubmission)
+        shouldRefreshHangoutsOnAppear = true
     }
 
-    private func normalizedCreateDraft(_ draft: CreateHangoutDraft) -> CreateHangoutDraft {
-        var updated = draft
-        updated.sourceLabel = pendingHangoutSourceLabel
-        updated.sourceEventID = pendingHangoutSourceEventID
-        updated.sourceOfferID = pendingHangoutSourceOfferID
-        return updated
+    private func normalizedCreateSubmission(_ submission: CreateHangoutSubmission) -> CreateHangoutSubmission {
+        CreateHangoutSubmission(
+            title: submission.title,
+            description: submission.description,
+            vibe: submission.vibe,
+            languages: submission.languages,
+            locationName: submission.locationName,
+            locationAddress: submission.locationAddress,
+            cityName: submission.cityName,
+            cityPlaceID: submission.cityPlaceID,
+            latitude: submission.latitude,
+            longitude: submission.longitude,
+            startAt: submission.startAt,
+            durationHours: submission.durationHours,
+            isTimeFlexible: submission.isTimeFlexible,
+            capacity: submission.capacity,
+            isCapacityUnlimited: submission.isCapacityUnlimited,
+            visibility: submission.visibility,
+            inviteCode: submission.inviteCode,
+            genderPreference: submission.genderPreference,
+            audienceTags: submission.audienceTags,
+            isMicro: submission.isMicro,
+            isLive: submission.isLive,
+            sourceType: submission.sourceType,
+            sourceLabel: pendingHangoutSourceLabel,
+            sourceEventID: pendingHangoutSourceEventID,
+            sourceOfferID: pendingHangoutSourceOfferID,
+            coverImageData: submission.coverImageData,
+            coverSeed: submission.coverSeed
+        )
     }
 
     private var backdrop: some View {
@@ -1037,20 +937,30 @@ struct HangoutsView: View {
         let dayItems = discoveryEvents.filter { calendar.isDate($0.startAt, inSameDayAs: viewModel.selectedDay) }
         let listItems = dayItems.isEmpty ? Array(discoveryEvents.prefix(5)) : dayItems
 
-        return ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: FriendZoneTheme.Spacing.sm) {
-                ForEach(listItems) { event in
-                    Button {
-                        selectedEventDetail = event
-                        FriendZoneHaptics.selection()
-                    } label: {
-                        HangoutCardView(hangout: eventAsHangoutTicket(event), now: now)
+        return Group {
+            if listItems.isEmpty {
+                discoveryEmptyState(
+                    icon: "music.note.list",
+                    title: "No events available",
+                    description: discoveryErrorMessage ?? "There are no live event results from the backend right now."
+                )
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: FriendZoneTheme.Spacing.sm) {
+                        ForEach(listItems) { event in
+                            Button {
+                                selectedEventDetail = event
+                                FriendZoneHaptics.selection()
+                            } label: {
+                                HangoutCardView(hangout: eventAsHangoutTicket(event), now: now)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, FriendZoneTheme.Spacing.md)
+                    .padding(.bottom, 28)
                 }
             }
-            .padding(.horizontal, FriendZoneTheme.Spacing.md)
-            .padding(.bottom, 28)
         }
     }
 
@@ -1058,21 +968,56 @@ struct HangoutsView: View {
         let dayItems = discoveryOffers.filter { calendar.isDate($0.validUntil, inSameDayAs: viewModel.selectedDay) }
         let listItems = dayItems.isEmpty ? discoveryOffers : dayItems
 
-        return ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: FriendZoneTheme.Spacing.sm) {
-                ForEach(listItems) { offer in
-                    Button {
-                        selectedOfferDetail = offer
-                        FriendZoneHaptics.selection()
-                    } label: {
-                        DiscoveryOfferVoucherCardView(offer: offer)
+        return Group {
+            if listItems.isEmpty {
+                discoveryEmptyState(
+                    icon: "ticket",
+                    title: "No offers available",
+                    description: discoveryErrorMessage ?? "There are no live offer results from the backend right now."
+                )
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: FriendZoneTheme.Spacing.sm) {
+                        ForEach(listItems) { offer in
+                            Button {
+                                selectedOfferDetail = offer
+                                FriendZoneHaptics.selection()
+                            } label: {
+                                DiscoveryOfferVoucherCardView(offer: offer)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, FriendZoneTheme.Spacing.md)
+                    .padding(.bottom, 28)
                 }
             }
-            .padding(.horizontal, FriendZoneTheme.Spacing.md)
-            .padding(.bottom, 28)
         }
+    }
+
+    private func discoveryEmptyState(icon: String, title: String, description: String) -> some View {
+        VStack(spacing: FriendZoneTheme.Spacing.md) {
+            ZStack {
+                Circle()
+                    .fill(FriendZoneTheme.Colors.primarySoft)
+                    .frame(width: 64, height: 64)
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.primary)
+            }
+
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(description)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(FriendZoneTheme.Spacing.md)
     }
 
     private func hangoutSwappedCard(_ hangout: HangoutItem) -> some View {
@@ -1223,7 +1168,6 @@ struct HangoutsView: View {
     }
 
     private func eventAsHangoutTicket(_ event: DiscoveryEventItem) -> HangoutItem {
-        let participants = mockParticipantNames(for: event.groups)
         let capacity = max(event.groups + 4, 8)
         let approved = min(max(1, event.groups), capacity)
         let vibe = vibeForEventCategory(event.category)
@@ -1244,7 +1188,7 @@ struct HangoutsView: View {
             isLive: false,
             isMicro: false,
             isJoined: false,
-            participantNames: participants,
+            participantNames: [],
             coverImageData: nil,
             coverSeed: event.id % 10,
             distanceKm: 1.8,
@@ -1267,12 +1211,6 @@ struct HangoutsView: View {
         default:
             return .chill
         }
-    }
-
-    private func mockParticipantNames(for groups: Int) -> [String] {
-        let pool = ["Luca", "Maya", "Sam", "Alex", "Nora", "Jo", "Elena", "Max", "Iris", "Tom"]
-        let count = min(max(2, groups), 5)
-        return Array(pool.prefix(count))
     }
 
     private var createFAB: some View {
@@ -2997,316 +2935,6 @@ private struct NativeNotificationsView: View {
     }
 }
 
-private struct NativePlansView: View {
-    let onClose: () -> Void
-    private let items = HangoutsMockData.sample().filter { $0.endAt > Date() }.sorted { $0.startAt < $1.startAt }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 10) {
-                ForEach(items) { hangout in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(hangout.title)
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(timeLabel(hangout.startAt))
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
-                                .foregroundColor(FriendZoneTheme.Colors.primary)
-                        }
-
-                        Text(hangout.description)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                            .lineLimit(1)
-
-                        HStack(spacing: 8) {
-                            Text(dayLabel(hangout.startAt))
-                            Text("•")
-                            Text(hangout.isJoined ? "Joined" : "Pending")
-                            Text("•")
-                            Text("\(hangout.spotsLeft) spots left")
-                        }
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    }
-                    .padding(12)
-                    .background(FriendZoneTheme.Colors.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                    }
-                }
-            }
-            .padding(16)
-            .padding(.bottom, 22)
-        }
-        .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { onClose() }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-            }
-        }
-    }
-
-    private func timeLabel(_ value: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: value)
-    }
-
-    private func dayLabel(_ value: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: value)
-    }
-}
-
-private struct NativeEditProfileView: View {
-    @State private var username = "safaeralabs"
-    @State private var displayName = "Safaera Labs"
-    @State private var bio = "Building FriendZone iOS native experience."
-    @State private var city = "Berlin"
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 12) {
-                inputField("Username", text: $username)
-                inputField("Display name", text: $displayName)
-                inputField("City", text: $city)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Bio")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    TextEditor(text: $bio)
-                        .font(.system(size: 15))
-                        .frame(height: 120)
-                        .padding(8)
-                        .background(FriendZoneTheme.Colors.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                        }
-                }
-
-                Button {
-                } label: {
-                    Text("Save changes")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(FriendZoneTheme.Colors.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
-            }
-            .padding(16)
-        }
-        .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("Edit Profile")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func inputField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            TextField("", text: text)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
-                .padding(.horizontal, 12)
-                .frame(height: 44)
-                .background(FriendZoneTheme.Colors.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                }
-        }
-    }
-}
-
-private struct NativeMessagesView: View {
-    private let chats = [
-        ("nina", "See you at the coffee sprint", "2m"),
-        ("kai", "Rooftop plan still on?", "10m"),
-        ("tina", "Great photos yesterday!", "42m"),
-        ("leo", "Run group starts at 7", "1h")
-    ]
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 10) {
-                ForEach(Array(chats.enumerated()), id: \.offset) { _, chat in
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(FriendZoneTheme.Colors.primarySoft)
-                            .frame(width: 38, height: 38)
-                            .overlay {
-                                Text(String(chat.0.prefix(1)).uppercased())
-                                    .font(FriendZoneTheme.Typography.system(14, weight: .bold))
-                                    .foregroundColor(FriendZoneTheme.Colors.primary)
-                            }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(chat.0)
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                            Text(chat.1)
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-                        Text(chat.2)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    }
-                    .padding(12)
-                    .background(FriendZoneTheme.Colors.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("Messages")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct NativeHelpView: View {
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                faqItem("How do I join a hangout?", "Open any card and tap request. The host accepts participants.")
-                faqItem("Why is location hidden?", "Location becomes visible only after acceptance for safety.")
-                faqItem("How do I report someone?", "Use the ⋮ menu on cards or inside maps marker panel.")
-                faqItem("Can I hide my profile details?", "Yes, in Settings > Privacy you can limit visibility.")
-            }
-            .padding(16)
-        }
-        .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("Help Center")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func faqItem(_ title: String, _ answer: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-            Text(answer)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-        }
-    }
-}
-
-private struct NativePrivacyView: View {
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                legalBlock("Data we collect", "Account profile, activity interactions, and basic device diagnostics for performance.")
-                legalBlock("Location usage", "Used to show nearby hangouts and maps. You can disable city visibility in profile controls.")
-                legalBlock("Sharing", "We do not sell personal data. Limited sharing happens only to operate core features.")
-                legalBlock("Control", "You can request data export and account deletion from Settings.")
-            }
-            .padding(16)
-        }
-        .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("Privacy Policy")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func legalBlock(_ title: String, _ body: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-            Text(body)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-        }
-        .padding(12)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-        }
-    }
-}
-
-private struct NativeTermsView: View {
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                legalBlock("Respectful conduct", "Harassment, hate, and unsafe behavior are not allowed.")
-                legalBlock("Real-world safety", "Meet in public places and follow local laws and venue rules.")
-                legalBlock("User responsibility", "You are responsible for content and behavior on your account.")
-                legalBlock("Enforcement", "Accounts may be restricted for serious or repeated violations.")
-            }
-            .padding(16)
-        }
-        .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("Terms of Service")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func legalBlock(_ title: String, _ body: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-            Text(body)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-        }
-        .padding(12)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-        }
-    }
-}
-
-private struct SettingsRow: Identifiable {
-    let id = UUID()
-    let title: String
-    let subtitle: String
-    let binding: Binding<Bool>
-
-    static func toggle(_ title: String, _ subtitle: String, _ binding: Binding<Bool>) -> SettingsRow {
-        SettingsRow(title: title, subtitle: subtitle, binding: binding)
-    }
-}
-
 private enum NotificationTone {
     case primary
     case success
@@ -4235,6 +3863,220 @@ private enum SettingsVerificationState {
     case verified
 }
 
+private struct SettingsRow: Identifiable {
+    let id = UUID()
+    let title: String
+    let subtitle: String
+    let binding: Binding<Bool>
+
+    static func toggle(_ title: String, _ subtitle: String, _ binding: Binding<Bool>) -> SettingsRow {
+        SettingsRow(title: title, subtitle: subtitle, binding: binding)
+    }
+}
+
+private struct NativeEditProfileView: View {
+    @EnvironmentObject private var session: AppSessionStore
+    @State private var username = ""
+    @State private var displayName = ""
+    @State private var bio = ""
+    @State private var city = ""
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 12) {
+                inputField("Username", text: $username)
+                inputField("Display name", text: $displayName)
+                inputField("City", text: $city)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Bio")
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    TextEditor(text: $bio)
+                        .font(.system(size: 15))
+                        .frame(height: 120)
+                        .padding(8)
+                        .background(FriendZoneTheme.Colors.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                        }
+                }
+            }
+            .padding(16)
+        }
+        .background(FriendZoneTheme.Colors.background)
+        .navigationTitle("Edit Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let user = session.currentUser
+            let profile = session.currentProfile
+            username = user?.username ?? ""
+            let name = [user?.firstName, user?.lastName]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            displayName = name.isEmpty ? (user?.username ?? "") : name
+            bio = profile?.bio ?? ""
+            city = profile?.cityName ?? ""
+        }
+    }
+
+    private func inputField(_ title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            TextField("", text: text)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+                .padding(.horizontal, 12)
+                .frame(height: 44)
+                .background(FriendZoneTheme.Colors.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                }
+        }
+    }
+}
+
+private struct NativeMessagesView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Circle()
+                .fill(FriendZoneTheme.Colors.primarySoft)
+                .frame(width: 72, height: 72)
+                .overlay {
+                    Image(systemName: "message")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.primary)
+                }
+            Text("No inbox connected yet")
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            Text("This screen is waiting for a dedicated backend inbox endpoint.")
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(FriendZoneTheme.Colors.background)
+        .navigationTitle("Messages")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct NativeHelpView: View {
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 10) {
+                faqItem("How do I join a hangout?", "Open any card and tap request. The host accepts participants.")
+                faqItem("Why is location hidden?", "Location becomes visible only after acceptance for safety.")
+                faqItem("How do I report someone?", "Use the menu on cards or inside the map panel.")
+                faqItem("Can I hide my profile details?", "Yes. Privacy controls live inside Settings.")
+            }
+            .padding(16)
+        }
+        .background(FriendZoneTheme.Colors.background)
+        .navigationTitle("Help Center")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func faqItem(_ title: String, _ answer: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            Text(answer)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+}
+
+private struct NativePrivacyView: View {
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                legalBlock("Data we collect", "Account profile, activity interactions, and device diagnostics for app performance.")
+                legalBlock("Location usage", "Used to show nearby hangouts and map results when the backend has real coordinates.")
+                legalBlock("Sharing", "We do not sell personal data. Limited sharing happens only to operate core features.")
+                legalBlock("Control", "You can request data export and account deletion from Settings.")
+            }
+            .padding(16)
+        }
+        .background(FriendZoneTheme.Colors.background)
+        .navigationTitle("Privacy Policy")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func legalBlock(_ title: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            Text(body)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+        .padding(12)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+}
+
+private struct NativeTermsView: View {
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                legalBlock("Respectful conduct", "Harassment, hate, and unsafe behavior are not allowed.")
+                legalBlock("Real-world safety", "Meet in public places and follow local laws and venue rules.")
+                legalBlock("User responsibility", "You are responsible for content and behavior on your account.")
+                legalBlock("Enforcement", "Accounts may be restricted for serious or repeated violations.")
+            }
+            .padding(16)
+        }
+        .background(FriendZoneTheme.Colors.background)
+        .navigationTitle("Terms of Service")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func legalBlock(_ title: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            Text(body)
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+        .padding(12)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+}
+
 private struct NativeNotificationsHubView: View {
     @EnvironmentObject private var session: AppSessionStore
     let onClose: () -> Void
@@ -4243,6 +4085,7 @@ private struct NativeNotificationsHubView: View {
     @State private var isLoading = true
     @State private var isMarkingAllRead = false
     @State private var errorMessage: String?
+    @State private var destination: HubNavigationDestination?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4311,6 +4154,38 @@ private struct NativeNotificationsHubView: View {
                     .background(FriendZoneTheme.Colors.background.opacity(0.96))
             }
         }
+        .fullScreenCover(item: $destination) { destination in
+            NavigationStack {
+                switch destination {
+                case let .hangout(id):
+                    HubHangoutDestinationView(hangoutID: id) {
+                        self.destination = nil
+                    }
+                case let .event(id):
+                    HubEventDestinationView(eventID: id) {
+                        self.destination = nil
+                    }
+                case let .profile(userID):
+                    PublicProfileView(
+                        profile: PublicProfileData(
+                            id: String(userID),
+                            userID: userID,
+                            displayName: "Profile",
+                            bio: "",
+                            instagram: "",
+                            website: "",
+                            city: ""
+                        ),
+                        leadingText: "Public ",
+                        highlightText: "profile",
+                        subtitle: nil
+                    ) {
+                        self.destination = nil
+                    }
+                }
+            }
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+        }
     }
 
     private var unreadCount: Int {
@@ -4368,7 +4243,7 @@ private struct NativeNotificationsHubView: View {
 
     private func notificationRow(_ item: HubNotificationItem) -> some View {
         Button {
-            Task { await markRead(item) }
+            Task { await openNotification(item) }
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Circle()
@@ -4459,6 +4334,16 @@ private struct NativeNotificationsHubView: View {
         }
     }
 
+    @MainActor
+    private func openNotification(_ item: HubNotificationItem) async {
+        if !item.isRead {
+            await markRead(item)
+        }
+        if let destination = item.destination {
+            self.destination = destination
+        }
+    }
+
 }
 
 private enum HubNotificationFilter {
@@ -4474,6 +4359,7 @@ private struct HubNotificationItem: Identifiable {
     let icon: String
     let colorHex: String
     var isRead: Bool
+    let destination: HubNavigationDestination?
 
     init(feed: AppNotificationFeedItem) {
         id = feed.id
@@ -4483,6 +4369,7 @@ private struct HubNotificationItem: Identifiable {
         icon = Self.icon(for: feed.type)
         colorHex = Self.color(for: feed.type)
         isRead = feed.read
+        destination = Self.destination(for: feed)
     }
 
     private static func icon(for type: String) -> String {
@@ -4524,76 +4411,61 @@ private struct HubNotificationItem: Identifiable {
             return "#667EEA"
         }
     }
+
+    private static func destination(for feed: AppNotificationFeedItem) -> HubNavigationDestination? {
+        if let hangoutID = feed.relatedHangoutId {
+            return .hangout(hangoutID)
+        }
+        if let eventID = feed.relatedEventId {
+            return .event(eventID)
+        }
+        if let userID = feed.relatedUserId {
+            return .profile(userID)
+        }
+        return nil
+    }
+}
+
+private enum HubNavigationDestination: Identifiable, Equatable {
+    case hangout(Int)
+    case event(Int)
+    case profile(Int)
+
+    var id: String {
+        switch self {
+        case let .hangout(id): return "hangout-\(id)"
+        case let .event(id): return "event-\(id)"
+        case let .profile(id): return "profile-\(id)"
+        }
+    }
 }
 
 private struct NativePlansHubView: View {
+    @EnvironmentObject private var session: AppSessionStore
     let onClose: () -> Void
     @State private var selectedTab: PlansHubTab = .upcoming
-    private let soloItems: [SoloPlanItem] = [
-        SoloPlanItem(
-            id: 8001,
-            title: "Indie Cinema Night",
-            startAt: Date().addingTimeInterval(60 * 60 * 36),
-            venueName: "Kino Mitte",
-            creatorName: "Event creator"
-        ),
-        SoloPlanItem(
-            id: 8002,
-            title: "Tech House Session",
-            startAt: Date().addingTimeInterval(-60 * 60 * 50),
-            venueName: "Neon Club",
-            creatorName: "Event creator"
-        )
-    ]
+    @State private var hangouts: [HangoutItem] = []
+    @State private var soloItems: [SoloPlanItem] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var destination: PlansHubDestination?
 
     private var now: Date { Date() }
 
-    private var allHangouts: [HangoutItem] {
-        var items = HangoutsMockData.sample()
-        if !items.contains(where: { $0.hostName.lowercased() == "you" }) {
-            items.insert(
-                HangoutItem(
-                    id: 999,
-                    sourceType: .hangout,
-                    title: "Night Design Sprint",
-                    description: "Co-create ideas and prototypes with other builders.",
-                    vibe: .activity,
-                    cityName: "Berlin",
-                    locationName: "Prenzlauer Studio Loft",
-                    hostName: "you",
-                    startAt: now.addingTimeInterval(60 * 60 * 18),
-                    endAt: now.addingTimeInterval(60 * 60 * 21),
-                    capacity: 10,
-                    approvedCount: 4,
-                    isLive: false,
-                    isMicro: false,
-                    isJoined: true,
-                    participantNames: ["Noa", "Lia", "Ben", "Mia"],
-                    coverImageData: nil,
-                    coverSeed: 10,
-                    distanceKm: 2.1,
-                    priceTier: .free
-                ),
-                at: 0
-            )
-        }
-        return items
-    }
-
     private var upcomingHangouts: [HangoutItem] {
-        allHangouts
+        hangouts
             .filter { $0.startAt > now && ($0.isJoined || $0.hostName.lowercased() == "you") }
             .sorted { $0.startAt < $1.startAt }
     }
 
     private var hostingHangouts: [HangoutItem] {
-        allHangouts
+        hangouts
             .filter { $0.startAt > now && $0.hostName.lowercased() == "you" }
             .sorted { $0.startAt < $1.startAt }
     }
 
     private var pastHangouts: [HangoutItem] {
-        allHangouts
+        hangouts
             .filter { $0.startAt <= now && ($0.isJoined || $0.hostName.lowercased() == "you") }
             .sorted { $0.startAt > $1.startAt }
     }
@@ -4629,7 +4501,11 @@ private struct NativePlansHubView: View {
 
                 VStack(spacing: 14) {
                     tabSwitch
-                    if currentEntries.isEmpty {
+                    if isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                    } else if currentEntries.isEmpty {
                         emptyState
                     } else {
                         VStack(spacing: 10) {
@@ -4652,11 +4528,40 @@ private struct NativePlansHubView: View {
         .background(FriendZoneTheme.Colors.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadPlans()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { onClose() }
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.error)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(FriendZoneTheme.Colors.background.opacity(0.96))
+            }
+        }
+        .fullScreenCover(item: $destination) { destination in
+            NavigationStack {
+                switch destination {
+                case let .hangout(id):
+                    HubHangoutDestinationView(hangoutID: id) {
+                        self.destination = nil
+                    }
+                case let .event(id):
+                    HubEventDestinationView(eventID: id) {
+                        self.destination = nil
+                    }
+                }
+            }
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
         }
     }
 
@@ -4747,19 +4652,23 @@ private struct NativePlansHubView: View {
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
                 .multilineTextAlignment(.center)
-            Button(selectedTab.emptyButtonTitle) {}
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                .padding(.horizontal, 26)
-                .frame(height: 42)
-                .background(
-                    LinearGradient(
-                        colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            Button(selectedTab.emptyButtonTitle) {
+                if selectedTab == .hosting {
+                    onClose()
+                }
+            }
+            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+            .foregroundColor(FriendZoneTheme.Colors.textInverse)
+            .padding(.horizontal, 26)
+            .frame(height: 42)
+            .background(
+                LinearGradient(
+                    colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .padding(.vertical, 36)
         .frame(maxWidth: .infinity)
@@ -4770,52 +4679,154 @@ private struct NativePlansHubView: View {
         let isPast = selectedTab == .past
         let isHost = hangout.hostName.lowercased() == "you"
 
-        return ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(happening ? FriendZoneTheme.Colors.success : vibeColor(hangout.vibe))
-                .frame(width: 4)
-                .frame(maxHeight: .infinity)
+        return Button {
+            destination = .hangout(hangout.id)
+        } label: {
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(happening ? FriendZoneTheme.Colors.success : vibeColor(hangout.vibe))
+                    .frame(width: 4)
+                    .frame(maxHeight: .infinity)
 
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(vibeColor(hangout.vibe))
-                        .frame(width: 40, height: 40)
-                        .overlay {
-                            Text(vibeEmoji(hangout.vibe))
-                                .font(.system(size: 18))
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(vibeColor(hangout.vibe))
+                            .frame(width: 40, height: 40)
+                            .overlay {
+                                Text(vibeEmoji(hangout.vibe))
+                                    .font(.system(size: 18))
+                            }
+                            .opacity(isPast ? 0.70 : 1)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hangout.title)
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                                .lineLimit(1)
+
+                            Text("\(dateLabel(hangout.startAt)) · \(timeLabel(hangout.startAt)) · \(hangout.locationDisplay)")
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                                .lineLimit(1)
                         }
-                        .opacity(isPast ? 0.70 : 1)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(hangout.title)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                            .lineLimit(1)
+                        Spacer()
 
-                        Text("\(dateLabel(hangout.startAt)) · \(timeLabel(hangout.startAt)) · \(hangout.locationDisplay)")
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                            .lineLimit(1)
+                        if happening {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(FriendZoneTheme.Colors.success)
+                                    .frame(width: 6, height: 6)
+                                Text("NOW")
+                            }
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.success)
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .background(FriendZoneTheme.Colors.success.opacity(0.14))
+                            .clipShape(Capsule())
+                        } else {
+                            Text(timeUntil(hangout.startAt, isPast: isPast))
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
+                                .foregroundColor(isPast ? FriendZoneTheme.Colors.textTertiary : FriendZoneTheme.Colors.primary)
+                                .padding(.horizontal, 10)
+                                .frame(height: 24)
+                                .background(isPast ? Color.black.opacity(0.05) : FriendZoneTheme.Colors.primarySoft)
+                                .clipShape(Capsule())
+                        }
                     }
+                    .padding(.leading, 18)
+                    .padding(.trailing, 12)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
 
-                    Spacer()
+                    Divider()
+                        .padding(.leading, 18)
 
-                    if happening {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(FriendZoneTheme.Colors.success)
-                                .frame(width: 6, height: 6)
-                            Text("NOW")
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Image(systemName: isHost ? "sparkles" : "person.3.fill")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(isHost ? "Hosting" : "Attending")
                         }
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.success)
-                        .padding(.horizontal, 10)
-                        .frame(height: 24)
-                        .background(FriendZoneTheme.Colors.success.opacity(0.14))
-                        .clipShape(Capsule())
-                    } else {
-                        Text(timeUntil(hangout.startAt, isPast: isPast))
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
+                        .foregroundColor(isHost ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.textSecondary)
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background((isHost ? FriendZoneTheme.Colors.primary : Color.black).opacity(isHost ? 0.08 : 0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.2.fill")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("\(hangout.approvedCount)/\(hangout.capacity)")
+                        }
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
+                        Spacer()
+
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                            .frame(width: 26, height: 26)
+                            .background(Color.clear)
+                            .clipShape(Circle())
+                    }
+                    .padding(.leading, 18)
+                    .padding(.trailing, 12)
+                    .padding(.top, 7)
+                    .padding(.bottom, 10)
+                }
+            }
+            .background(happening ? FriendZoneTheme.Colors.success.opacity(0.04) : FriendZoneTheme.Colors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(happening ? FriendZoneTheme.Colors.success.opacity(0.24) : FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+            }
+            .opacity(isPast ? 0.88 : 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func soloEventCard(_ event: SoloPlanItem) -> some View {
+        let isPast = selectedTab == .past
+        return Button {
+            destination = .event(event.eventID)
+        } label: {
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(LinearGradient(colors: [Color(hex: "#0E7490"), Color(hex: "#06B6D4")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 4)
+                    .frame(maxHeight: .infinity)
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(LinearGradient(colors: [Color(hex: "#0E7490"), Color(hex: "#06B6D4")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 40, height: 40)
+                            .overlay {
+                                Image(systemName: "ticket.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.title)
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
+                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                                .lineLimit(1)
+                            Text("\(dateLabel(event.startAt)) · \(timeLabel(event.startAt)) · \(event.venueName)")
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Text(timeUntil(event.startAt, isPast: isPast))
                             .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
                             .foregroundColor(isPast ? FriendZoneTheme.Colors.textTertiary : FriendZoneTheme.Colors.primary)
                             .padding(.horizontal, 10)
@@ -4823,131 +4834,33 @@ private struct NativePlansHubView: View {
                             .background(isPast ? Color.black.opacity(0.05) : FriendZoneTheme.Colors.primarySoft)
                             .clipShape(Capsule())
                     }
-                }
-                .padding(.leading, 18)
-                .padding(.trailing, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-                Divider()
                     .padding(.leading, 18)
+                    .padding(.trailing, 12)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
 
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: isHost ? "sparkles" : "person.3.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(isHost ? "Hosting" : "Attending")
-                    }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
-                    .foregroundColor(isHost ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.textSecondary)
-                    .padding(.horizontal, 8)
-                    .frame(height: 22)
-                    .background((isHost ? FriendZoneTheme.Colors.primary : Color.black).opacity(isHost ? 0.08 : 0.05))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Divider()
+                        .padding(.leading, 18)
 
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.2.fill")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("\(hangout.approvedCount)/\(hangout.capacity)")
-                    }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-
-                    Spacer()
-
-                    Button {} label: {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                            .frame(width: 26, height: 26)
-                            .background(Color.clear)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.leading, 18)
-                .padding(.trailing, 12)
-                .padding(.top, 7)
-                .padding(.bottom, 10)
-            }
-        }
-        .background(happening ? FriendZoneTheme.Colors.success.opacity(0.04) : FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(happening ? FriendZoneTheme.Colors.success.opacity(0.24) : FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
-        }
-        .opacity(isPast ? 0.88 : 1)
-    }
-
-    private func soloEventCard(_ event: SoloPlanItem) -> some View {
-        let isPast = selectedTab == .past
-        return ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(LinearGradient(colors: [Color(hex: "#0E7490"), Color(hex: "#06B6D4")], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 4)
-                .frame(maxHeight: .infinity)
-
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(LinearGradient(colors: [Color(hex: "#0E7490"), Color(hex: "#06B6D4")], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 40, height: 40)
-                        .overlay {
-                            Image(systemName: "ticket.fill")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Event · Solo")
                         }
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
+                        .foregroundColor(Color(hex: "#0F4C5C"))
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(Color(hex: "#0E7490").opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(event.title)
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .bold))
-                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                            .lineLimit(1)
-                        Text("\(dateLabel(event.startAt)) · \(timeLabel(event.startAt)) · \(event.venueName)")
+                        Text(event.creatorName)
                             .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
                             .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                            .lineLimit(1)
-                    }
 
-                    Spacer()
+                        Spacer()
 
-                    Text(timeUntil(event.startAt, isPast: isPast))
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-                        .foregroundColor(isPast ? FriendZoneTheme.Colors.textTertiary : FriendZoneTheme.Colors.primary)
-                        .padding(.horizontal, 10)
-                        .frame(height: 24)
-                        .background(isPast ? Color.black.opacity(0.05) : FriendZoneTheme.Colors.primarySoft)
-                        .clipShape(Capsule())
-                }
-                .padding(.leading, 18)
-                .padding(.trailing, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-                Divider()
-                    .padding(.leading, 18)
-
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("Event · Solo")
-                    }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .semibold))
-                    .foregroundColor(Color(hex: "#0F4C5C"))
-                    .padding(.horizontal, 8)
-                    .frame(height: 22)
-                    .background(Color(hex: "#0E7490").opacity(0.14))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                    Text(event.creatorName)
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-
-                    Spacer()
-
-                    Button {} label: {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(FriendZoneTheme.Colors.textTertiary)
@@ -4955,21 +4868,43 @@ private struct NativePlansHubView: View {
                             .background(Color.clear)
                             .clipShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .padding(.leading, 18)
+                    .padding(.trailing, 12)
+                    .padding(.top, 7)
+                    .padding(.bottom, 10)
                 }
-                .padding(.leading, 18)
-                .padding(.trailing, 12)
-                .padding(.top, 7)
-                .padding(.bottom, 10)
             }
+            .background(FriendZoneTheme.Colors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+            }
+            .opacity(isPast ? 0.88 : 1)
         }
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        .buttonStyle(.plain)
+    }
+
+    @MainActor
+    private func loadPlans() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            async let remoteHangouts = session.fetchHangouts()
+            async let remoteSolo = session.fetchMySoloJoins()
+
+            let hangoutFeed = try await remoteHangouts
+            let soloFeed = try await remoteSolo
+
+            hangouts = hangoutFeed.compactMap {
+                HubNavigationMapper.mapHangoutFeed($0, currentUserID: session.currentUser?.id)
+            }
+            soloItems = soloFeed.compactMap(HubNavigationMapper.mapSoloPlanItem)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        .opacity(isPast ? 0.88 : 1)
     }
 
     private func dateLabel(_ value: Date) -> String {
@@ -5046,10 +4981,23 @@ private enum PlansHubEntry {
 
 private struct SoloPlanItem {
     let id: Int
+    let eventID: Int
     let title: String
     let startAt: Date
     let venueName: String
     let creatorName: String
+}
+
+private enum PlansHubDestination: Identifiable, Equatable {
+    case hangout(Int)
+    case event(Int)
+
+    var id: String {
+        switch self {
+        case let .hangout(id): return "hangout-\(id)"
+        case let .event(id): return "event-\(id)"
+        }
+    }
 }
 
 private enum PlansHubTab: CaseIterable {
@@ -5822,6 +5770,275 @@ private struct NativeReportProblemHubView: View {
         .navigationTitle("Report a Problem")
         .navigationBarTitleDisplayMode(.inline)
     }
+}
+
+private enum HubNavigationMapper {
+    static func parseServerDate(_ raw: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) {
+            return date
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: raw)
+    }
+
+    static func mapHangoutFeed(_ item: HangoutFeedItem, currentUserID: Int?) -> HangoutItem? {
+        guard
+            let startAt = parseServerDate(item.startAt),
+            let endAt = parseServerDate(item.endAt)
+        else {
+            return nil
+        }
+
+        let isJoined = item.participants.contains {
+            $0.user == currentUserID && $0.status.lowercased() == "approved"
+        }
+        let participantNames = item.participants
+            .filter { $0.status.lowercased() == "approved" }
+            .map(\.username)
+
+        return HangoutItem(
+            id: item.id,
+            sourceType: mapSourceType(item.sourceType),
+            title: item.title,
+            description: item.description,
+            vibe: mapVibe(item.vibe),
+            cityName: item.cityName,
+            locationName: item.locationName,
+            hostName: item.host == currentUserID ? "you" : item.hostUsername,
+            startAt: startAt,
+            endAt: endAt,
+            capacity: item.capacity,
+            approvedCount: item.approvedParticipantsCount ?? participantNames.count,
+            isLive: item.isLive,
+            isMicro: item.isMicro,
+            isJoined: isJoined || item.host == currentUserID,
+            participantNames: participantNames,
+            coverImageData: nil,
+            coverSeed: item.id,
+            distanceKm: 1.2,
+            priceTier: .free
+        )
+    }
+
+    static func mapSoloPlanItem(_ item: EventSoloJoinFeedItem) -> SoloPlanItem? {
+        guard let startAt = parseServerDate(item.startAt) else { return nil }
+        return SoloPlanItem(
+            id: item.id,
+            eventID: item.eventId,
+            title: item.eventTitle,
+            startAt: startAt,
+            venueName: item.venueName,
+            creatorName: item.creatorName
+        )
+    }
+
+    static func mapEventDetail(_ item: EventDetailFeedItem) -> HangoutsView.DiscoveryEventItem? {
+        guard let startAt = parseServerDate(item.startAt) else { return nil }
+        let venue = item.venueName ?? item.city ?? "Event venue"
+        let displayName = item.creatorDisplayName ?? item.creatorUsername ?? item.organizerName ?? "Event creator"
+        let photos = item.photos.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+        let photoMoments = photos.map { photo in
+            HangoutsView.EventPhotoMoment(
+                id: photo.id,
+                title: item.title,
+                subtitle: venue,
+                symbol: "photo",
+                palette: [Color(hex: "#171717"), Color(hex: "#525252"), Color(hex: "#A3A3A3")],
+                imageURL: photo.imageUrl
+            )
+        }
+
+        return HangoutsView.DiscoveryEventItem(
+            id: item.id,
+            title: item.title,
+            venue: venue,
+            startAt: startAt,
+            groups: max(item.totalParticipants ?? 0, 1),
+            category: item.categoryDisplay ?? item.category ?? "Event",
+            creatorProfile: CreatorProfileDraft(
+                userID: item.creator,
+                displayName: displayName,
+                username: item.creatorUsername,
+                bio: item.description ?? "\(venue) · \(item.categoryDisplay ?? item.category ?? "Event")",
+                instagram: item.creatorUsername ?? "",
+                website: "",
+                city: item.city ?? "",
+                avatarURL: item.creatorAvatarUrl
+            ),
+            photoMoments: photoMoments
+        )
+    }
+
+    static func hangoutJoinStatus(_ item: HangoutFeedItem, currentUserID: Int?) -> HangoutJoinStatus {
+        if item.host == currentUserID || item.participants.contains(where: { $0.user == currentUserID && $0.status.lowercased() == "approved" }) {
+            return .joined
+        }
+        if item.joinRequests.contains(where: {
+            $0.user == currentUserID && ["pending", "waitlisted"].contains($0.status.lowercased())
+        }) {
+            return .requested
+        }
+        return .none
+    }
+
+    private static func mapSourceType(_ raw: String) -> HangoutSourceType {
+        switch raw.lowercased() {
+        case "event":
+            return .event
+        case "offer":
+            return .offer
+        default:
+            return .hangout
+        }
+    }
+
+    private static func mapVibe(_ raw: String) -> HangoutVibe {
+        switch raw.lowercased() {
+        case "drinks":
+            return .drinks
+        case "sporty", "outdoors":
+            return .sporty
+        case "food":
+            return .foodie
+        case "creative", "culture", "board games":
+            return .activity
+        case "deep talks":
+            return .deepTalk
+        default:
+            return .chill
+        }
+    }
+}
+
+private struct HubEventDestinationView: View {
+    @EnvironmentObject private var session: AppSessionStore
+    let eventID: Int
+    let onClose: () -> Void
+    @State private var event: HangoutsView.DiscoveryEventItem?
+    @State private var errorMessage: String?
+    @State private var isPresentingCreate = false
+
+    var body: some View {
+        Group {
+            if let event {
+                NativeEventDetailView(
+                    event: event,
+                    creatorProfile: event.creatorProfile,
+                    onClose: onClose,
+                    onJoinSoloSuccess: onClose,
+                    onCreateHangout: {
+                        isPresentingCreate = true
+                    },
+                    onShowCreatorProfile: {}
+                )
+            } else if let errorMessage {
+                hubLoadFailure(message: errorMessage)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task {
+            await load()
+        }
+        .fullScreenCover(isPresented: $isPresentingCreate) {
+            CreateHangoutView(
+                onCancel: { isPresentingCreate = false },
+                onCreate: { submission in
+                    _ = try await session.createHangout(from: submission)
+                },
+                initialDraft: CreateHangoutDraft(
+                    sourceType: .event,
+                    sourceLabel: event?.title,
+                    sourceEventID: eventID,
+                    sourceOfferID: nil
+                )
+            )
+            .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        guard event == nil else { return }
+        do {
+            let detail = try await session.fetchEventDetail(id: eventID)
+            event = HubNavigationMapper.mapEventDetail(detail)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct HubHangoutDestinationView: View {
+    @EnvironmentObject private var session: AppSessionStore
+    let hangoutID: Int
+    let onClose: () -> Void
+    @State private var hangout: HangoutItem?
+    @State private var joinStatus: HangoutJoinStatus = .none
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let hangout {
+                HangoutDetailView(
+                    hangout: hangout,
+                    joinStatus: joinStatus,
+                    onRequestJoin: { joinStatus = .requested },
+                    onCancelRequest: { joinStatus = .none }
+                )
+            } else if let errorMessage {
+                hubLoadFailure(message: errorMessage)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task {
+            await load()
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { onClose() }
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+            }
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        guard hangout == nil else { return }
+        do {
+            let detail = try await session.fetchHangoutDetail(id: hangoutID)
+            hangout = HubNavigationMapper.mapHangoutFeed(detail, currentUserID: session.currentUser?.id)
+            joinStatus = HubNavigationMapper.hangoutJoinStatus(detail, currentUserID: session.currentUser?.id)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+@ViewBuilder
+private func hubLoadFailure(message: String) -> some View {
+    VStack(spacing: 12) {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 26, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.error)
+        Text("Could not open destination")
+            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+        Text(message)
+            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 24)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(FriendZoneTheme.Colors.background)
 }
 
 private struct BlockedUserItem: Identifiable {

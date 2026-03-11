@@ -59,19 +59,18 @@ struct TicketModel: Identifiable {
     }
 
     var cardHangout: HangoutItem {
-        let participants = mockParticipantNames(for: groups)
         let capacity = max(groups + 4, 8)
         let approved = min(max(1, groups), capacity)
 
         return HangoutItem(
             id: 9000 + id,
-            sourceType: .event,
+            sourceType: frontStyle == .offer ? .offer : .event,
             title: title,
             description: "Event ticket for \(venue).",
             vibe: vibeForCategory(category),
-            cityName: organizerProfile.city.isEmpty ? "Berlin" : organizerProfile.city,
+            cityName: organizerProfile.city,
             locationName: nil,
-            hostName: "Event host",
+            hostName: organizerProfile.displayName,
             startAt: date,
             endAt: date.addingTimeInterval(2 * 60 * 60),
             capacity: capacity,
@@ -79,7 +78,7 @@ struct TicketModel: Identifiable {
             isLive: false,
             isMicro: false,
             isJoined: false,
-            participantNames: participants,
+            participantNames: [],
             coverImageData: nil,
             coverSeed: id % 10,
             distanceKm: 1.8,
@@ -102,11 +101,6 @@ struct TicketModel: Identifiable {
         default:
             return .chill
         }
-    }
-
-    private func mockParticipantNames(for groups: Int) -> [String] {
-        let names = ["Nina", "Yara", "Leo", "Max", "Noah", "Mila", "Emma", "Omar", "Ava", "Luca"]
-        return Array(names.prefix(max(1, min(groups, 5))))
     }
 }
 

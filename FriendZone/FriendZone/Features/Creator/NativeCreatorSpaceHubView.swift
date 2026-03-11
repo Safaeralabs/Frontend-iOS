@@ -7,10 +7,16 @@ struct NativeCreatorSpaceHubView: View {
     @EnvironmentObject private var session: AppSessionStore
     @State private var activeTab: CreatorSpaceTab = .profile
     @State private var showCreateSheet = false
-    @State private var profileDraft = CreatorProfileDraft.sample
-    @State private var events = CreatorEventItem.sample
-    @State private var venues = CreatorVenueItem.sample
-    @State private var offers = CreatorOfferItem.sample
+    @State private var profileDraft = CreatorProfileDraft(
+        displayName: "",
+        bio: "",
+        instagram: "",
+        website: "",
+        city: ""
+    )
+    @State private var events: [CreatorEventItem] = []
+    @State private var venues: [CreatorVenueItem] = []
+    @State private var offers: [CreatorOfferItem] = []
     @State private var selectedEventDashboardItem: CreatorEventItem?
     @State private var selectedOfferDashboardItem: CreatorOfferItem?
     @State private var isSavingProfile = false
@@ -636,6 +642,7 @@ struct NativeCreatorSpaceHubView: View {
             status: mapCreatorEventStatus(item.status),
             venueName: item.venueName ?? "Venue",
             startAt: startAt,
+            endAt: parseServerDate(item.endAt ?? item.startAt) ?? startAt.addingTimeInterval(2 * 60 * 60),
             capacity: item.capacity ?? 0,
             groupsCount: item.hangoutsCount ?? 0
         )
@@ -719,7 +726,7 @@ struct NativeCreatorSpaceHubView: View {
     }
 
     private func hydrateProfileDraftIfNeeded(force: Bool = false) {
-        guard force || profileDraft == .sample else { return }
+        guard force || profileDraft.displayName.isEmpty else { return }
         let user = session.currentUser
         let profile = session.currentProfile
         let displayNameParts = [user?.firstName, user?.lastName]
@@ -867,6 +874,7 @@ private struct CreatorEventItem: Identifiable {
     var status: CreatorEventStatus
     var venueName: String
     var startAt: Date
+    var endAt: Date
     var capacity: Int
     var groupsCount: Int
 
@@ -878,6 +886,7 @@ private struct CreatorEventItem: Identifiable {
             status: .live,
             venueName: "Neon Hall",
             startAt: Date().addingTimeInterval(60 * 50),
+            endAt: Date().addingTimeInterval(60 * 60 * 3),
             capacity: 80,
             groupsCount: 8
         ),
@@ -888,6 +897,7 @@ private struct CreatorEventItem: Identifiable {
             status: .upcoming,
             venueName: "East Side Gallery",
             startAt: Date().addingTimeInterval(60 * 60 * 28),
+            endAt: Date().addingTimeInterval(60 * 60 * 31),
             capacity: 40,
             groupsCount: 5
         )
@@ -1211,8 +1221,11 @@ private struct CreatorOfferCard: View {
 
 private struct CreatorEventDashboardView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSessionStore
 
     @State private var draft: CreatorEventItem
+    @State private var isSaving = false
+    @State private var errorMessage: String?
 
     let onSave: (CreatorEventItem) -> Void
 
@@ -1303,12 +1316,8 @@ private struct CreatorEventDashboardView: View {
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
                     formField("Status") {
-                        Picker("Status", selection: $draft.status) {
-                            ForEach(CreatorEventStatus.allCases, id: \.rawValue) { status in
-                                Text(status.title).tag(status)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                        Text(draft.status.title)
+                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
                     }
 
                     formField("Start date") {
@@ -1336,21 +1345,17 @@ private struct CreatorEventDashboardView: View {
                     }
 
                     HStack(spacing: 8) {
-                        if draft.status == .upcoming {
-                            quickActionButton("Go Live", tint: Color(hex: "#0E7490")) {
-                                draft.status = .live
-                            }
-                        }
                         if draft.status == .live || draft.status == .upcoming {
                             quickActionButton("Cancel", tint: FriendZoneTheme.Colors.error) {
-                                draft.status = .cancelled
+                                Task { await cancelEvent() }
                             }
                         }
-                        if draft.status == .live {
-                            quickActionButton("Mark Ended", tint: FriendZoneTheme.Colors.textSecondary) {
-                                draft.status = .ended
-                            }
-                        }
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.error)
                     }
                 }
                 .padding(14)
@@ -1361,9 +1366,8 @@ private struct CreatorEventDashboardView: View {
                         .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.5)
                 }
 
-                Button("Save Event Changes") {
-                    onSave(draft)
-                    FriendZoneHaptics.success()
+                Button(isSaving ? "Saving..." : "Save Event Changes") {
+                    Task { await saveEvent() }
                 }
                 .buttonStyle(.plain)
                 .font(FriendZoneTheme.Typography.system(14, weight: .bold))
@@ -1372,6 +1376,7 @@ private struct CreatorEventDashboardView: View {
                 .frame(height: 44)
                 .background(Color(hex: "#0F172A"))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .disabled(isSaving)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 26)
@@ -1385,11 +1390,11 @@ private struct CreatorEventDashboardView: View {
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Save") {
-                    onSave(draft)
-                    FriendZoneHaptics.success()
+                Button(isSaving ? "Saving..." : "Save") {
+                    Task { await saveEvent() }
                 }
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                .disabled(isSaving)
             }
         }
     }
@@ -1425,12 +1430,94 @@ private struct CreatorEventDashboardView: View {
         }
         .buttonStyle(.plain)
     }
+
+    @MainActor
+    private func saveEvent() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+
+        do {
+            let duration = max(60, draft.endAt.timeIntervalSince(draft.startAt))
+            let updated = try await session.updateCreatorEvent(
+                id: draft.id,
+                title: draft.title,
+                startAt: draft.startAt,
+                endAt: draft.startAt.addingTimeInterval(duration),
+                capacity: draft.capacity,
+                category: draft.category
+            )
+            draft.status = mapEventStatus(updated.status)
+            onSave(
+                CreatorEventItem(
+                    id: updated.id,
+                    title: updated.title,
+                    category: updated.category ?? draft.category,
+                    status: mapEventStatus(updated.status),
+                    venueName: updated.venueName ?? draft.venueName,
+                    startAt: draft.startAt,
+                    endAt: draft.startAt.addingTimeInterval(duration),
+                    capacity: updated.capacity ?? draft.capacity,
+                    groupsCount: updated.hangoutsCount ?? draft.groupsCount
+                )
+            )
+            FriendZoneHaptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelEvent() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+
+        do {
+            let updated = try await session.cancelCreatorEvent(id: draft.id)
+            draft.status = mapEventStatus(updated.status)
+            onSave(
+                CreatorEventItem(
+                    id: updated.id,
+                    title: updated.title,
+                    category: updated.category ?? draft.category,
+                    status: mapEventStatus(updated.status),
+                    venueName: updated.venueName ?? draft.venueName,
+                    startAt: draft.startAt,
+                    endAt: draft.endAt,
+                    capacity: updated.capacity ?? draft.capacity,
+                    groupsCount: updated.hangoutsCount ?? draft.groupsCount
+                )
+            )
+            FriendZoneHaptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func mapEventStatus(_ raw: String) -> CreatorEventStatus {
+        switch raw.lowercased() {
+        case "live":
+            return .live
+        case "ended":
+            return .ended
+        case "cancelled":
+            return .cancelled
+        default:
+            return .upcoming
+        }
+    }
 }
 
 private struct CreatorOfferDashboardView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSessionStore
 
     @State private var draft: CreatorOfferItem
+    @State private var isSaving = false
+    @State private var errorMessage: String?
 
     let onSave: (CreatorOfferItem) -> Void
 
@@ -1594,19 +1681,20 @@ private struct CreatorOfferDashboardView: View {
                     HStack(spacing: 8) {
                         if draft.status == .active {
                             quickActionButton("Pause", tint: Color(hex: "#D97706")) {
-                                draft.status = .paused
+                                Task { await pauseOffer() }
                             }
                         }
                         if draft.status == .paused || draft.status == .draft {
                             quickActionButton("Publish", tint: FriendZoneTheme.Colors.success) {
-                                draft.status = .active
+                                Task { await resumeOffer() }
                             }
                         }
-                        if draft.status != .expired {
-                            quickActionButton("Expire", tint: FriendZoneTheme.Colors.error) {
-                                draft.status = .expired
-                            }
-                        }
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.error)
                     }
                 }
                 .padding(14)
@@ -1617,9 +1705,8 @@ private struct CreatorOfferDashboardView: View {
                         .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.5)
                 }
 
-                Button("Save Offer Changes") {
-                    onSave(draft)
-                    FriendZoneHaptics.success()
+                Button(isSaving ? "Saving..." : "Save Offer Changes") {
+                    Task { await saveOffer() }
                 }
                 .buttonStyle(.plain)
                 .font(FriendZoneTheme.Typography.system(14, weight: .bold))
@@ -1628,6 +1715,7 @@ private struct CreatorOfferDashboardView: View {
                 .frame(height: 44)
                 .background(Color(hex: "#0F172A"))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .disabled(isSaving)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 26)
@@ -1641,11 +1729,11 @@ private struct CreatorOfferDashboardView: View {
                     .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Save") {
-                    onSave(draft)
-                    FriendZoneHaptics.success()
+                Button(isSaving ? "Saving..." : "Save") {
+                    Task { await saveOffer() }
                 }
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                .disabled(isSaving)
             }
         }
     }
@@ -1683,10 +1771,115 @@ private struct CreatorOfferDashboardView: View {
         }
         .buttonStyle(.plain)
     }
+
+    @MainActor
+    private func saveOffer() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+
+        do {
+            let updated = try await session.updateCreatorOffer(
+                id: draft.id,
+                title: draft.title,
+                perk: draft.perk,
+                validUntil: draft.validUntil,
+                recurrence: draft.recurrence.lowercased(),
+                capacity: draft.capacity
+            )
+            let mapped = CreatorOfferItem(
+                id: updated.id,
+                title: updated.title,
+                perk: updated.perk,
+                status: mapOfferStatus(updated.status),
+                venueName: updated.venueName ?? draft.venueName,
+                validUntil: draft.validUntil,
+                recurrence: updated.recurrenceDisplay ?? draft.recurrence,
+                claimsUsed: updated.claimsUsed ?? draft.claimsUsed,
+                capacity: updated.capacity
+            )
+            draft = mapped
+            onSave(mapped)
+            FriendZoneHaptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func pauseOffer() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+
+        do {
+            let updated = try await session.pauseCreatorOffer(id: draft.id)
+            let mapped = CreatorOfferItem(
+                id: updated.id,
+                title: updated.title,
+                perk: updated.perk,
+                status: mapOfferStatus(updated.status),
+                venueName: updated.venueName ?? draft.venueName,
+                validUntil: draft.validUntil,
+                recurrence: updated.recurrenceDisplay ?? draft.recurrence,
+                claimsUsed: updated.claimsUsed ?? draft.claimsUsed,
+                capacity: updated.capacity
+            )
+            draft = mapped
+            onSave(mapped)
+            FriendZoneHaptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func resumeOffer() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+
+        do {
+            let updated = try await session.resumeCreatorOffer(id: draft.id)
+            let mapped = CreatorOfferItem(
+                id: updated.id,
+                title: updated.title,
+                perk: updated.perk,
+                status: mapOfferStatus(updated.status),
+                venueName: updated.venueName ?? draft.venueName,
+                validUntil: draft.validUntil,
+                recurrence: updated.recurrenceDisplay ?? draft.recurrence,
+                claimsUsed: updated.claimsUsed ?? draft.claimsUsed,
+                capacity: updated.capacity
+            )
+            draft = mapped
+            onSave(mapped)
+            FriendZoneHaptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func mapOfferStatus(_ raw: String) -> CreatorOfferStatus {
+        switch raw.lowercased() {
+        case "active":
+            return .active
+        case "paused":
+            return .paused
+        case "draft":
+            return .draft
+        default:
+            return .expired
+        }
+    }
 }
 
 private struct CreatorCreateEventSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSessionStore
 
     let onCreate: (CreatorEventItem) -> Void
 
@@ -1698,6 +1891,7 @@ private struct CreatorCreateEventSheet: View {
     @State private var capacity = 50
     @State private var description = ""
     @State private var errorMessage = ""
+    @State private var isSubmitting = false
 
     private let categories = ["music", "sports", "tech", "art", "food", "party", "networking", "outdoor", "community", "other"]
 
@@ -1771,8 +1965,8 @@ private struct CreatorCreateEventSheet: View {
                     .background(FriendZoneTheme.Colors.surfaceMuted)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                    Button("Create Event") {
-                        create()
+                    Button(isSubmitting ? "Creating..." : "Create Event") {
+                        Task { await create() }
                     }
                     .buttonStyle(.plain)
                     .font(FriendZoneTheme.Typography.system(15, weight: .bold))
@@ -1781,6 +1975,7 @@ private struct CreatorCreateEventSheet: View {
                     .frame(height: 46)
                     .background(FriendZoneTheme.Colors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .disabled(isSubmitting)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -1790,7 +1985,8 @@ private struct CreatorCreateEventSheet: View {
         }
     }
 
-    private func create() {
+    @MainActor
+    private func create() async {
         if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
@@ -1801,26 +1997,47 @@ private struct CreatorCreateEventSheet: View {
             errorMessage = "End time must be after start time."
             return
         }
+        guard !(session.currentProfile?.cityName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Set your city in profile before creating events."
+            return
+        }
 
-        let id = Int(Date().timeIntervalSince1970)
-        let item = CreatorEventItem(
-            id: id,
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-            category: category,
-            status: .upcoming,
-            venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines),
-            startAt: startAt,
-            capacity: capacity,
-            groupsCount: 0
-        )
-        onCreate(item)
-        dismiss()
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            let created = try await session.createCreatorEvent(
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines),
+                venueAddress: "",
+                startAt: startAt,
+                endAt: endAt,
+                capacity: capacity,
+                category: category
+            )
+            let item = CreatorEventItem(
+                id: created.id,
+                title: created.title,
+                category: created.category ?? category,
+                status: .upcoming,
+                venueName: created.venueName ?? venueName.trimmingCharacters(in: .whitespacesAndNewlines),
+                startAt: startAt,
+                endAt: endAt,
+                capacity: created.capacity ?? capacity,
+                groupsCount: created.hangoutsCount ?? 0
+            )
+            onCreate(item)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
 private struct CreatorCreateVenueSheet: View {
     @Environment(\.dismiss) private var dismiss
-
+    @EnvironmentObject private var session: AppSessionStore
     let onCreate: (CreatorVenueItem) -> Void
 
     @State private var name = ""
@@ -1828,6 +2045,7 @@ private struct CreatorCreateVenueSheet: View {
     @State private var city = ""
     @State private var category = "bar"
     @State private var errorMessage = ""
+    @State private var isSubmitting = false
 
     private let categories = ["bar", "cafe", "restaurant", "club", "coworking", "park", "gym", "gallery", "theater", "other"]
 
@@ -1882,8 +2100,8 @@ private struct CreatorCreateVenueSheet: View {
                     .background(FriendZoneTheme.Colors.surfaceMuted)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                    Button("Submit Venue Request") {
-                        create()
+                    Button(isSubmitting ? "Submitting..." : "Submit Venue Request") {
+                        Task { await create() }
                     }
                     .buttonStyle(.plain)
                     .font(FriendZoneTheme.Typography.system(15, weight: .bold))
@@ -1892,6 +2110,7 @@ private struct CreatorCreateVenueSheet: View {
                     .frame(height: 46)
                     .background(FriendZoneTheme.Colors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .disabled(isSubmitting)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -1914,6 +2133,10 @@ private struct CreatorCreateVenueSheet: View {
             Text("After submit, our team reviews ownership before activating this venue.")
                 .font(FriendZoneTheme.Typography.system(12, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+
+            Text("Until place search is integrated, the app creates a manual venue reference from your typed address.")
+                .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
@@ -1925,7 +2148,9 @@ private struct CreatorCreateVenueSheet: View {
         }
     }
 
-    private func create() {
+    @MainActor
+    private func create() async {
+        errorMessage = ""
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1934,26 +2159,50 @@ private struct CreatorCreateVenueSheet: View {
             return
         }
 
-        let id = Int(Date().timeIntervalSince1970)
-        let item = CreatorVenueItem(
-            id: id,
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            category: category,
-            status: .pendingVerification,
-            city: city.trimmingCharacters(in: .whitespacesAndNewlines),
-            address: address.trimmingCharacters(in: .whitespacesAndNewlines),
-            totalHangouts: 0,
-            totalOffers: 0,
-            totalPeopleReached: 0,
-            isVerified: false
-        )
-        onCreate(item)
-        dismiss()
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            let created = try await session.createCreatorVenue(
+                name: name,
+                category: category,
+                address: address,
+                city: city
+            )
+            let item = CreatorVenueItem(
+                id: created.id,
+                name: created.name,
+                category: created.category,
+                status: mapVenueStatus(created.status),
+                city: created.city,
+                address: created.address,
+                totalHangouts: created.totalHangouts ?? 0,
+                totalOffers: created.totalOffers ?? 0,
+                totalPeopleReached: created.totalPeopleReached ?? 0,
+                isVerified: created.isVerified ?? false
+            )
+            onCreate(item)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func mapVenueStatus(_ raw: String) -> CreatorVenueStatus {
+        switch raw.lowercased() {
+        case "active":
+            return .active
+        case "pending":
+            return .pendingVerification
+        default:
+            return .inactive
+        }
     }
 }
 
 private struct CreatorCreateOfferSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSessionStore
 
     let venues: [CreatorVenueItem]
     let onCreate: (CreatorOfferItem) -> Void
@@ -1968,8 +2217,12 @@ private struct CreatorCreateOfferSheet: View {
     @State private var description = ""
     @State private var autoCreateHangout = false
     @State private var errorMessage = ""
+    @State private var isSubmitting = false
 
     private let recurrenceOptions = ["none", "daily", "weekend"]
+    private var selectableVenues: [CreatorVenueItem] {
+        venues.filter { $0.status == .active }
+    }
 
     var body: some View {
         NavigationStack {
@@ -1983,7 +2236,7 @@ private struct CreatorCreateOfferSheet: View {
                         formError(errorMessage)
                     }
 
-                    if venues.isEmpty {
+                    if selectableVenues.isEmpty {
                         Text("You need at least one approved venue before creating offers.")
                             .font(FriendZoneTheme.Typography.system(14, weight: .medium))
                             .foregroundColor(FriendZoneTheme.Colors.textSecondary)
@@ -2000,7 +2253,7 @@ private struct CreatorCreateOfferSheet: View {
                         formField("Venue *") {
                             Picker("Venue", selection: $selectedVenueID) {
                                 Text("Select venue...").tag(nil as Int?)
-                                ForEach(venues) { venue in
+                                ForEach(selectableVenues) { venue in
                                     Text(venue.name).tag(venue.id as Int?)
                                 }
                             }
@@ -2066,8 +2319,8 @@ private struct CreatorCreateOfferSheet: View {
                     .background(FriendZoneTheme.Colors.surfaceMuted)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                    Button("Create Offer") {
-                        create()
+                    Button(isSubmitting ? "Creating..." : "Create Offer") {
+                        Task { await create() }
                     }
                     .buttonStyle(.plain)
                     .font(FriendZoneTheme.Typography.system(15, weight: .bold))
@@ -2076,8 +2329,8 @@ private struct CreatorCreateOfferSheet: View {
                     .frame(height: 46)
                     .background(FriendZoneTheme.Colors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .disabled(venues.isEmpty)
-                    .opacity(venues.isEmpty ? 0.6 : 1)
+                    .disabled(selectableVenues.isEmpty || isSubmitting)
+                    .opacity((selectableVenues.isEmpty || isSubmitting) ? 0.6 : 1)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -2087,11 +2340,12 @@ private struct CreatorCreateOfferSheet: View {
         }
     }
 
-    private func create() {
+    @MainActor
+    private func create() async {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !perk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let selectedVenueID,
-              let selectedVenue = venues.first(where: { $0.id == selectedVenueID })
+              let selectedVenue = selectableVenues.first(where: { $0.id == selectedVenueID })
         else {
             errorMessage = "Title, perk and venue are required."
             return
@@ -2102,20 +2356,51 @@ private struct CreatorCreateOfferSheet: View {
             return
         }
 
-        let id = Int(Date().timeIntervalSince1970)
-        let item = CreatorOfferItem(
-            id: id,
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-            perk: perk.trimmingCharacters(in: .whitespacesAndNewlines),
-            status: autoCreateHangout ? .active : .draft,
-            venueName: selectedVenue.name,
-            validUntil: validUntil,
-            recurrence: recurrence,
-            claimsUsed: 0,
-            capacity: capacity
-        )
-        onCreate(item)
-        dismiss()
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            let created = try await session.createCreatorOffer(
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                perk: perk.trimmingCharacters(in: .whitespacesAndNewlines),
+                venueID: selectedVenueID,
+                validFrom: validFrom,
+                validUntil: validUntil,
+                recurrence: recurrence,
+                capacity: capacity,
+                autoCreateHangout: autoCreateHangout,
+                terms: description.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            let item = CreatorOfferItem(
+                id: created.id,
+                title: created.title,
+                perk: created.perk,
+                status: autoCreateHangout ? .active : mapCreatedOfferStatus(created.status),
+                venueName: created.venueName ?? selectedVenue.name,
+                validUntil: validUntil,
+                recurrence: created.recurrenceDisplay ?? recurrence,
+                claimsUsed: created.claimsUsed ?? 0,
+                capacity: created.capacity
+            )
+            onCreate(item)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func mapCreatedOfferStatus(_ raw: String) -> CreatorOfferStatus {
+        switch raw.lowercased() {
+        case "active":
+            return .active
+        case "paused":
+            return .paused
+        case "draft":
+            return .draft
+        default:
+            return .expired
+        }
     }
 }
 

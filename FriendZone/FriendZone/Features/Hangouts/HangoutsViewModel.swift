@@ -142,8 +142,7 @@ final class HangoutsViewModel: ObservableObject {
 
     func refresh() async {
         isLoading = true
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        allHangouts = HangoutsMockData.sample()
+        allHangouts = []
         requestedJoinIDs.removeAll()
         hasLoaded = true
         isLoading = false

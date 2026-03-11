@@ -39,6 +39,18 @@ private enum AuthSocialProvider {
     }
 }
 
+private enum AuthFailureContext {
+    case login
+    case signup
+    case social(AuthSocialProvider)
+}
+
+private enum AuthDebugConfig {
+    static let clientMarker = "ios-auth-v3"
+    static let loginPath = "/api/auth/login/"
+    static let registerPath = "/api/auth/register/"
+}
+
 struct AuthFlowView: View {
     @EnvironmentObject private var session: AppSessionStore
     @State private var currentScreen: AuthScreen = .login
@@ -95,14 +107,20 @@ struct AuthFlowView: View {
     }
 
     private var authDebugBanner: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(session.backendReachable ? Color.green : FriendZoneTheme.Colors.error)
-                .frame(width: 8, height: 8)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(session.backendReachable ? Color.green : FriendZoneTheme.Colors.error)
+                    .frame(width: 8, height: 8)
 
-            Text("API \(session.backendReachable ? "reachable" : "unreachable")")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                Text("API \(session.backendReachable ? "reachable" : "unreachable")")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text("DBG-0310")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.primary)
+            }
 
             Text(AppConfig.baseURL.absoluteString)
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
@@ -110,16 +128,17 @@ struct AuthFlowView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Text("DBG-0310")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .bold))
+            Text("AUTH \(AuthDebugConfig.clientMarker) · LOGIN \(AuthDebugConfig.loginPath) · REGISTER \(AuthDebugConfig.registerPath)")
+                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
                 .foregroundColor(FriendZoneTheme.Colors.primary)
+                .lineLimit(2)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Color.white.opacity(0.84))
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            Capsule()
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
         }
         .padding(.top, 10)
@@ -208,7 +227,11 @@ private struct LoginScreen: View {
     @State private var username = ""
     @State private var password = ""
     @State private var isSubmitting = false
+    @State private var isSocialSubmitting = false
     @State private var errorMessage = ""
+    @State private var isPasswordLoginExpanded = false
+    private let appleSignInCoordinator = AppleSignInCoordinator.shared
+    private let googleSignInCoordinator = GoogleSignInCoordinator.shared
 
     var body: some View {
         AuthLayout(
@@ -217,78 +240,53 @@ private struct LoginScreen: View {
             subtitle: "Sign in to discover what is happening nearby."
         ) {
             VStack(spacing: 12) {
-                AuthLineInputRow(
-                    icon: "person.crop.circle",
-                    placeholder: "Username",
-                    text: $username,
-                    contentType: .username
-                )
-
-                AuthLineInputRow(
-                    icon: "lock",
-                    placeholder: "Password",
-                    text: $password,
-                    secure: true,
-                    contentType: .password
-                )
-
-                HStack {
-                    Spacer()
-                    Button("Forgot password?") {
-                        onForgotPassword()
-                    }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.primary)
-                        .buttonStyle(.plain)
+                PrimaryAppleAuthButton(isLoading: isSocialSubmitting) {
+                    submitSocial(.apple)
                 }
-                .padding(.top, -2)
+
+                Text("Or continue with")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                    .tracking(0.4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+
+                AuthProviderButton(
+                    provider: .google,
+                    isLoading: isSocialSubmitting
+                ) {
+                    submitSocial(.google)
+                }
+
+                passwordLoginDisclosure
 
                 if !errorMessage.isEmpty {
                     errorBanner(errorMessage)
                 }
 
-                Button {
-                    submit()
-                } label: {
-                    Text(isSubmitting ? "Signing in..." : "Sign in")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(
-                            LinearGradient(
-                                colors: [FriendZoneTheme.Colors.primary, Color(hex: "#7C3AED")],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                if isPasswordLoginExpanded {
+                    Button {
+                        submit()
+                    } label: {
+                        Text(isSubmitting ? "Signing in..." : "Sign in")
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(
+                                LinearGradient(
+                                    colors: [FriendZoneTheme.Colors.primary, Color(hex: "#7C3AED")],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSubmit)
-                .opacity(canSubmit ? 1 : 0.55)
-                .padding(.top, 6)
-
-                authDivider("or continue with")
-
-                Button {
-                    errorMessage = "Google sign-in backend is ready, but this iOS build still needs the native Google SDK flow."
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "globe")
-                        Text("Continue with Google")
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color.white.opacity(0.7))
-                    .clipShape(Capsule())
-                    .overlay {
-                        Capsule().stroke(FriendZoneTheme.Colors.borderDefault, lineWidth: 1)
-                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSubmit)
+                    .opacity(canSubmit ? 1 : 0.55)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                .buttonStyle(.plain)
 
                 HStack(spacing: 6) {
                     Text("Do not have an account?")
@@ -312,12 +310,80 @@ private struct LoginScreen: View {
                 username = filtered
             }
         }
+        .animation(FriendZoneTheme.Motion.easeOutExpo, value: isPasswordLoginExpanded)
+    }
+
+    private var passwordLoginDisclosure: some View {
+        VStack(spacing: 10) {
+            Button {
+                withAnimation(FriendZoneTheme.Motion.easeOutExpo) {
+                    isPasswordLoginExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "person.crop.circle.badge.key")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.primary)
+
+                    Text("Use username and password")
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Spacer()
+
+                    Image(systemName: isPasswordLoginExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 50)
+                .background(Color.white.opacity(0.72))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(FriendZoneTheme.Colors.borderDefault, lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isPasswordLoginExpanded {
+                VStack(spacing: 12) {
+                    AuthLineInputRow(
+                        icon: "person.crop.circle",
+                        placeholder: "Username",
+                        text: $username,
+                        contentType: .username
+                    )
+
+                    AuthLineInputRow(
+                        icon: "lock",
+                        placeholder: "Password",
+                        text: $password,
+                        secure: true,
+                        contentType: .password
+                    )
+
+                    HStack {
+                        Spacer()
+                        Button("Forgot password?") {
+                            onForgotPassword()
+                        }
+                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.primary)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, -2)
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
     }
 
     private var canSubmit: Bool {
         username.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 &&
             !password.isEmpty &&
-            !isSubmitting
+            !isSubmitting &&
+            !isSocialSubmitting
     }
 
     private func submit() {
@@ -333,10 +399,64 @@ private struct LoginScreen: View {
                 await MainActor.run {
                     isSubmitting = false
                 }
-            } catch {
-                await MainActor.run {
-                    isSubmitting = false
-                    errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                } catch {
+                    await MainActor.run {
+                        isSubmitting = false
+                        errorMessage = authFriendlyMessage(for: error, context: .login)
+                    }
+                }
+            }
+        }
+
+    private func submitSocial(_ provider: AuthSocialProvider) {
+        guard !isSocialSubmitting && !isSubmitting else { return }
+        errorMessage = ""
+
+        switch provider {
+        case .google:
+            isSocialSubmitting = true
+            Task {
+                do {
+                    let credential = try await googleSignInCoordinator.signIn()
+                    try await session.loginWithGoogle(
+                        authorizationCode: credential.authorizationCode,
+                        redirectURI: credential.redirectURI
+                    )
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                        if let authError = error as? ASWebAuthenticationSessionError,
+                           authError.code == .canceledLogin {
+                            return
+                        }
+                        errorMessage = authFriendlyMessage(for: error, context: .social(.google))
+                    }
+                }
+            }
+        case .apple:
+            isSocialSubmitting = true
+            Task {
+                do {
+                    let credential = try await appleSignInCoordinator.signIn()
+                    try await session.loginWithApple(
+                        authorizationCode: credential.authorizationCode,
+                        identityToken: credential.identityToken
+                    )
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        isSocialSubmitting = false
+                        if let authError = error as? ASAuthorizationError,
+                           authError.code == .canceled {
+                            return
+                        }
+                        errorMessage = authFriendlyMessage(for: error, context: .social(.apple))
+                    }
                 }
             }
         }
@@ -391,7 +511,7 @@ private struct SignUpScreen: View {
                     validationState: usernameValidationState
                 )
                 if let backendError = backendErrors["username"] {
-                    validationHint(backendError)
+                    validationHint(compactFieldMessage(backendError, field: "username"))
                 } else if !username.isEmpty && !usernameValid {
                     validationHint("Use 3-20 letters, numbers, or _")
                 }
@@ -407,7 +527,7 @@ private struct SignUpScreen: View {
                     validationState: emailValidationState
                 )
                 if let backendError = backendErrors["email"] {
-                    validationHint(backendError)
+                    validationHint(compactFieldMessage(backendError, field: "email"))
                 } else if !email.isEmpty && !emailValid {
                     validationHint("Enter a valid email address")
                 }
@@ -422,7 +542,7 @@ private struct SignUpScreen: View {
                     validationState: passwordValidationState
                 )
                 if let backendError = backendErrors["password1"] {
-                    validationHint(backendError)
+                    validationHint(compactFieldMessage(backendError, field: "password1"))
                 } else if !password.isEmpty && !passwordValid {
                     validationHint("Password must be at least 8 characters")
                 }
@@ -437,7 +557,7 @@ private struct SignUpScreen: View {
                     validationState: passwordMatchValidationState
                 )
                 if let backendError = backendErrors["password2"] {
-                    validationHint(backendError)
+                    validationHint(compactFieldMessage(backendError, field: "password2"))
                 } else if !passwordConfirm.isEmpty && !passwordMatch {
                     validationHint("Passwords do not match")
                 }
@@ -554,7 +674,7 @@ private struct SignUpScreen: View {
             } catch {
                 await MainActor.run {
                     isSubmitting = false
-                    errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                    errorMessage = authFriendlyMessage(for: error, context: .signup)
                 }
             }
         }
@@ -584,7 +704,7 @@ private struct SignUpScreen: View {
                            authError.code == .canceledLogin {
                             return
                         }
-                        errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                        errorMessage = authFriendlyMessage(for: error, context: .social(.google))
                     }
                 }
             }
@@ -607,7 +727,7 @@ private struct SignUpScreen: View {
                            authError.code == .canceled {
                             return
                         }
-                        errorMessage = "\(error.localizedDescription)\nAPI: \(AppConfig.baseURL.absoluteString)"
+                        errorMessage = authFriendlyMessage(for: error, context: .social(.apple))
                     }
                 }
             }
@@ -1072,6 +1192,30 @@ private struct AuthProviderButton: View {
     }
 }
 
+private struct PrimaryAppleAuthButton: View {
+    let isLoading: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: "applelogo")
+                    .font(.system(size: 16, weight: .bold))
+                Text(isLoading ? "Connecting..." : "Continue with Apple")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.7 : 1)
+    }
+}
+
 private struct AuthBackgroundView: View {
     let style: AuthBackgroundStyle
 
@@ -1118,18 +1262,159 @@ private func validationHint(_ message: String) -> some View {
 }
 
 private func errorBanner(_ message: String) -> some View {
-    Text(message)
-        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+    HStack(alignment: .top, spacing: 8) {
+        Image(systemName: "exclamationmark.circle.fill")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundColor(FriendZoneTokens.Colors.errorStrong)
+
+        Text(message)
+            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+            .foregroundColor(FriendZoneTokens.Colors.errorStrong)
+            .fixedSize(horizontal: false, vertical: true)
+    }
         .foregroundColor(FriendZoneTokens.Colors.errorStrong)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 42)
         .background(FriendZoneTheme.Colors.error.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.error.opacity(0.24), lineWidth: 1)
         }
+}
+
+private func compactFieldMessage(_ message: String, field: String) -> String {
+    let normalized = message.lowercased()
+    switch field {
+    case "username":
+        if normalized.contains("already exists") || normalized.contains("already taken") {
+            return "Username already taken"
+        }
+        if normalized.contains("reserved") {
+            return "This username is reserved"
+        }
+        return "Check this username"
+    case "email":
+        if normalized.contains("already exists") || normalized.contains("already linked") || normalized.contains("already registered") {
+            return "Email already in use"
+        }
+        if normalized.contains("valid") {
+            return "Enter a valid email"
+        }
+        return "Check this email"
+    case "password1":
+        if normalized.contains("8") || normalized.contains("short") {
+            return "Use at least 8 characters"
+        }
+        return "Check your password"
+    case "password2":
+        if normalized.contains("match") {
+            return "Passwords do not match"
+        }
+        return "Confirm your password"
+    default:
+        return message
+    }
+}
+
+private func authFriendlyMessage(for error: Error, context: AuthFailureContext) -> String {
+    if let sessionError = error as? AppSessionError {
+        switch sessionError {
+        case .unauthorized, .missingRefreshToken:
+            return "Your session is no longer valid. Please sign in again."
+        case .invalidResponse:
+            return "We could not understand the server response. Please try again in a moment."
+        case .decodingFailed:
+            return "Something unexpected came back from the server. Please try again."
+        case let .httpStatus(code, message):
+            return authFriendlyMessageFromStatus(code: code, message: message, context: context)
+        }
+    }
+
+    let raw = error.localizedDescription.lowercased()
+    if raw.contains("internet") || raw.contains("offline") || raw.contains("network") || raw.contains("could not connect") {
+        return "No connection to the server right now. Check your internet or try again in a moment."
+    }
+
+    switch context {
+    case .login:
+        return "We could not sign you in right now. Please check your details and try again."
+    case .signup:
+        return "We could not create your account right now. Please review your details and try again."
+    case let .social(provider):
+        switch provider {
+        case .apple:
+            return "Apple sign-in could not be completed right now. Please try again."
+        case .google:
+            return "Google sign-in could not be completed right now. Please try again."
+        }
+    }
+}
+
+private func authFriendlyMessageFromStatus(code: Int, message: String, context: AuthFailureContext) -> String {
+    let normalized = message.lowercased()
+
+    if normalized.contains("username") && normalized.contains("already") {
+        return "That username is already taken. Try another one."
+    }
+    if normalized.contains("email") && (normalized.contains("already") || normalized.contains("exists")) {
+        return "That email is already being used. Try signing in instead."
+    }
+    if normalized.contains("password") && normalized.contains("match") {
+        return "The passwords do not match. Check them and try again."
+    }
+    if normalized.contains("password") && normalized.contains("8") {
+        return "Your password is too short. Use at least 8 characters."
+    }
+    if normalized.contains("username") && normalized.contains("required") {
+        return "Please enter a username to continue."
+    }
+    if normalized.contains("email") && normalized.contains("valid") {
+        return "Please enter a valid email address."
+    }
+    if normalized.contains("unable to log in") || normalized.contains("invalid credentials") || normalized.contains("invalid username") {
+        return "We could not sign you in. Check your username and password and try again."
+    }
+    if normalized.contains("apple") && normalized.contains("not configured") {
+        return "Apple sign-in is not fully configured yet. Use Google or username and password for now."
+    }
+    if normalized.contains("google") && normalized.contains("missing") {
+        return "Google sign-in is not fully configured in this build yet."
+    }
+
+    if code == 400 {
+        switch context {
+        case .login:
+            return "We could not sign you in. Check your username and password and try again."
+        case .signup:
+            return "Some account details need attention. Review the form and try again."
+        case let .social(provider):
+            return provider == .apple
+                ? "Apple sign-in could not be completed. Please try again."
+                : "Google sign-in could not be completed. Please try again."
+        }
+    }
+
+    if code == 401 {
+        return "Your session is no longer valid. Please sign in again."
+    }
+
+    if code == 403 {
+        return "This action is not allowed for your account right now."
+    }
+
+    if code == 404 {
+        return "The login service could not be reached. Please try again in a moment."
+    }
+
+    if code >= 500 {
+        return "The server is having trouble right now. Please try again in a moment."
+    }
+
+    return message.isEmpty
+        ? "Something went wrong. Please try again."
+        : message.prefix(1).uppercased() + message.dropFirst()
 }
 
 private func authDivider(_ text: String) -> some View {

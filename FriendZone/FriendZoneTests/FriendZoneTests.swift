@@ -178,6 +178,32 @@ struct FriendZoneTests {
         #expect(notification.timeAgo == "hace 2 minutos")
     }
 
+    @Test func eventSoloJoinFeedDecodesBackendShape() throws {
+        let data = Data(
+            """
+            {
+              "id": 901,
+              "event_id": 401,
+              "event_title": "Midnight Neo-Soul Jam",
+              "venue_name": "Neon Hall",
+              "creator_name": "Neon Events",
+              "start_at": "2026-03-15T20:00:00Z",
+              "end_at": "2026-03-15T23:00:00Z",
+              "joined_at": "2026-03-11T10:00:00Z"
+            }
+            """.utf8
+        )
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let item = try decoder.decode(EventSoloJoinFeedItem.self, from: data)
+
+        #expect(item.id == 901)
+        #expect(item.eventId == 401)
+        #expect(item.eventTitle == "Midnight Neo-Soul Jam")
+        #expect(item.creatorName == "Neon Events")
+    }
+
     @Test func creatorVenueFeedDecodesBackendShape() throws {
         let data = Data(
             """

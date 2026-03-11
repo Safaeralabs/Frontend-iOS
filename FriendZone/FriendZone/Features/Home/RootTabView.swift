@@ -10,7 +10,7 @@ struct RootTabView: View {
         span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
     )
     @State private var selectedMapSelectionID: String?
-    @State private var mapHangouts: [HangoutItem] = HangoutsMockData.sample()
+    @State private var mapHangouts: [HangoutItem] = []
     @State private var mapHangoutCoordinates: [Int: CLLocationCoordinate2D] = [:]
     @State private var mapEvents: [HangoutsView.DiscoveryEventItem] = []
     @State private var mapEventCoordinates: [Int: CLLocationCoordinate2D] = [:]
@@ -26,6 +26,7 @@ struct RootTabView: View {
     @State private var pendingMapHangoutSourceLabel: String?
     @State private var pendingMapHangoutSourceEventID: Int?
     @State private var pendingMapHangoutSourceOfferID: Int?
+    @State private var shouldRefreshMapHangoutsAfterCreate = false
     @State private var isShowingMapReportAcknowledgement = false
     @State private var isShowingMapBlurLift = false
     @State private var mapTransitionToken = 0
@@ -146,10 +147,12 @@ struct RootTabView: View {
             .fullScreenCover(isPresented: $isPresentingMapCreate) {
                 CreateHangoutView(
                     onCancel: { isPresentingMapCreate = false },
-                    onCreate: { draft in
-                        try await createMapHangout(draft)
+                    onCreate: { submission in
+                        try await createMapHangout(submission)
                     },
                     initialDraft: CreateHangoutDraft(
+                        cityName: session.currentProfile?.cityName ?? "",
+                        cityPlaceID: session.currentProfile?.cityPlaceId ?? "",
                         sourceType: pendingMapHangoutSource,
                         sourceLabel: pendingMapHangoutSourceLabel,
                         sourceEventID: pendingMapHangoutSourceEventID,
@@ -157,6 +160,13 @@ struct RootTabView: View {
                     )
                 )
                 .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
+            }
+            .onChange(of: isPresentingMapCreate) { isPresented in
+                guard !isPresented, shouldRefreshMapHangoutsAfterCreate else { return }
+                shouldRefreshMapHangoutsAfterCreate = false
+                Task {
+                    await loadMapHangouts()
+                }
             }
             .sheet(item: $mapPublicProfileRequest) { request in
                 NavigationStack {
@@ -481,29 +491,26 @@ struct RootTabView: View {
                 )
             }
 
-            guard !mapped.isEmpty else { return }
-
-            mapHangouts = mapped.sorted { $0.startAt < $1.startAt }
-            mapHangoutCoordinates = Dictionary(
-                uniqueKeysWithValues: items.map { item in
-                    (
-                        item.id,
-                        resolvedCoordinate(
-                            lat: item.lat,
-                            lng: item.lng,
-                            city: item.cityName,
-                            seedKey: "hangout-\(item.id)-\(item.locationName ?? item.cityName)"
-                        )
-                    )
+            let coordinatePairs = items.compactMap { item -> (Int, CLLocationCoordinate2D)? in
+                guard let coordinate = validCoordinate(lat: item.lat, lng: item.lng) else {
+                    return nil
                 }
-            )
+                return (item.id, coordinate)
+            }
+            let visibleIDs = Set(coordinatePairs.map { $0.0 })
+            mapHangouts = mapped
+                .filter { visibleIDs.contains($0.id) }
+                .sorted { $0.startAt < $1.startAt }
+            mapHangoutCoordinates = Dictionary(uniqueKeysWithValues: coordinatePairs)
             mapJoinStatuses = Dictionary(
-                uniqueKeysWithValues: mapped.map { item in
+                uniqueKeysWithValues: mapHangouts.map { item in
                     (item.id, item.isJoined ? .joined : .none)
                 }
             )
         } catch {
-            // Keep mock state.
+            mapHangouts = []
+            mapHangoutCoordinates = [:]
+            mapJoinStatuses = [:]
         }
     }
 
@@ -512,25 +519,23 @@ struct RootTabView: View {
         do {
             let items = try await session.fetchUpcomingEvents()
             let mapped = items.compactMap(mapDiscoveryEvent)
-            guard !mapped.isEmpty else { return }
-
-            mapEvents = mapped.sorted { $0.startAt < $1.startAt }
-            mapEventCoordinates = Dictionary(
-                uniqueKeysWithValues: items.compactMap { item in
-                    guard mapped.contains(where: { $0.id == item.id }) else { return nil }
-                    return (
-                        item.id,
-                        resolvedCoordinate(
-                            lat: item.lat,
-                            lng: item.lng,
-                            city: item.city,
-                            seedKey: "event-\(item.id)-\(item.venueName ?? item.city ?? "event")"
-                        )
-                    )
+            let coordinatePairs = items.compactMap { item -> (Int, CLLocationCoordinate2D)? in
+                guard
+                    mapped.contains(where: { $0.id == item.id }),
+                    let coordinate = validCoordinate(lat: item.lat, lng: item.lng)
+                else {
+                    return nil
                 }
-            )
+                return (item.id, coordinate)
+            }
+            let visibleIDs = Set(coordinatePairs.map { $0.0 })
+            mapEvents = mapped
+                .filter { visibleIDs.contains($0.id) }
+                .sorted { $0.startAt < $1.startAt }
+            mapEventCoordinates = Dictionary(uniqueKeysWithValues: coordinatePairs)
         } catch {
-            // Keep empty state.
+            mapEvents = []
+            mapEventCoordinates = [:]
         }
     }
 
@@ -539,24 +544,11 @@ struct RootTabView: View {
         do {
             let items = try await session.fetchActiveOffers()
             let mapped = items.compactMap(mapDiscoveryOffer)
-            guard !mapped.isEmpty else { return }
-
-            mapOffers = mapped.sorted { $0.validUntil < $1.validUntil }
-            mapOfferCoordinates = Dictionary(
-                uniqueKeysWithValues: mapped.map { item in
-                    (
-                        item.id,
-                        resolvedCoordinate(
-                            lat: nil,
-                            lng: nil,
-                            city: item.venueProfile.city,
-                            seedKey: "offer-\(item.id)-\(item.venue)"
-                        )
-                    )
-                }
-            )
+            mapOffers = []
+            mapOfferCoordinates = [:]
         } catch {
-            // Keep empty state.
+            mapOffers = []
+            mapOfferCoordinates = [:]
         }
     }
 
@@ -615,14 +607,38 @@ struct RootTabView: View {
     }
 
     @MainActor
-    private func createMapHangout(_ draft: CreateHangoutDraft) async throws {
-        var normalized = draft
-        normalized.sourceLabel = pendingMapHangoutSourceLabel
-        normalized.sourceEventID = pendingMapHangoutSourceEventID
-        normalized.sourceOfferID = pendingMapHangoutSourceOfferID
+    private func createMapHangout(_ submission: CreateHangoutSubmission) async throws {
+        let normalized = CreateHangoutSubmission(
+            title: submission.title,
+            description: submission.description,
+            vibe: submission.vibe,
+            languages: submission.languages,
+            locationName: submission.locationName,
+            locationAddress: submission.locationAddress,
+            cityName: submission.cityName,
+            cityPlaceID: submission.cityPlaceID,
+            latitude: submission.latitude,
+            longitude: submission.longitude,
+            startAt: submission.startAt,
+            durationHours: submission.durationHours,
+            isTimeFlexible: submission.isTimeFlexible,
+            capacity: submission.capacity,
+            isCapacityUnlimited: submission.isCapacityUnlimited,
+            visibility: submission.visibility,
+            inviteCode: submission.inviteCode,
+            genderPreference: submission.genderPreference,
+            audienceTags: submission.audienceTags,
+            isMicro: submission.isMicro,
+            isLive: submission.isLive,
+            sourceType: submission.sourceType,
+            sourceLabel: pendingMapHangoutSourceLabel,
+            sourceEventID: pendingMapHangoutSourceEventID,
+            sourceOfferID: pendingMapHangoutSourceOfferID,
+            coverImageData: submission.coverImageData,
+            coverSeed: submission.coverSeed
+        )
         _ = try await session.createHangout(from: normalized)
-        isPresentingMapCreate = false
-        await loadMapHangouts()
+        shouldRefreshMapHangoutsAfterCreate = true
     }
 
     private func parseServerDate(_ raw: String) -> Date? {
@@ -663,34 +679,11 @@ struct RootTabView: View {
         }
     }
 
-    private func resolvedCoordinate(lat: Double?, lng: Double?, city: String?, seedKey: String) -> CLLocationCoordinate2D {
-        if let lat, let lng, abs(lat) <= 90, abs(lng) <= 180 {
-            return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    private func validCoordinate(lat: Double?, lng: Double?) -> CLLocationCoordinate2D? {
+        guard let lat, let lng, abs(lat) <= 90, abs(lng) <= 180 else {
+            return nil
         }
-
-        let cityAnchor = anchorCoordinate(for: city)
-        let hash = abs(seedKey.hashValue)
-        let latOffset = (Double(hash % 700) / 7000.0) - 0.05
-        let lonOffset = (Double((hash / 700) % 700) / 7000.0) - 0.05
-        return CLLocationCoordinate2D(
-            latitude: cityAnchor.latitude + latOffset,
-            longitude: cityAnchor.longitude + lonOffset
-        )
-    }
-
-    private func anchorCoordinate(for city: String?) -> CLLocationCoordinate2D {
-        switch (city ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "munich", "münchen":
-            return CLLocationCoordinate2D(latitude: 48.1374, longitude: 11.5755)
-        case "madrid":
-            return CLLocationCoordinate2D(latitude: 40.4168, longitude: -3.7038)
-        case "barcelona":
-            return CLLocationCoordinate2D(latitude: 41.3874, longitude: 2.1686)
-        case "london":
-            return CLLocationCoordinate2D(latitude: 51.5072, longitude: -0.1276)
-        default:
-            return CLLocationCoordinate2D(latitude: 52.52, longitude: 13.405)
-        }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
     private func persistMapViewport() {

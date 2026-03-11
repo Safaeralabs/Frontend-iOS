@@ -12,6 +12,8 @@ struct AuthenticatedUser: Decodable, Equatable {
     let isEventCreator: Bool?
     let isVenueOwner: Bool?
     let onboardingCompleted: Bool?
+    let linkedProviders: [String]?
+    let hasUsablePassword: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -24,6 +26,8 @@ struct AuthenticatedUser: Decodable, Equatable {
         case isEventCreator
         case isVenueOwner
         case onboardingCompleted
+        case linkedProviders
+        case hasUsablePassword
     }
 
     init(from decoder: Decoder) throws {
@@ -38,6 +42,8 @@ struct AuthenticatedUser: Decodable, Equatable {
         isEventCreator = try container.decodeIfPresent(Bool.self, forKey: .isEventCreator)
         isVenueOwner = try container.decodeIfPresent(Bool.self, forKey: .isVenueOwner)
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted)
+        linkedProviders = try container.decodeIfPresent([String].self, forKey: .linkedProviders)
+        hasUsablePassword = try container.decodeIfPresent(Bool.self, forKey: .hasUsablePassword)
     }
 }
 
@@ -228,6 +234,7 @@ struct CreatorEventFeedItem: Decodable, Identifiable, Equatable {
     let category: String?
     let venueName: String?
     let startAt: String
+    let endAt: String?
     let capacity: Int?
     let hangoutsCount: Int?
     let status: String
@@ -369,6 +376,17 @@ struct NotificationPreferencesUpdateRequest: Encodable {
     let notifyBadges: Bool
 }
 
+struct EventSoloJoinFeedItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let eventId: Int
+    let eventTitle: String
+    let venueName: String
+    let creatorName: String
+    let startAt: String
+    let endAt: String?
+    let joinedAt: String?
+}
+
 private struct EventSoloJoinResponse: Decodable {
     let id: Int
 }
@@ -440,6 +458,122 @@ private struct CreateHangoutPayload: Encodable {
         case genderPreference = "gender_preference"
         case audienceTags = "audience_tags"
         case sourceEventId = "source_event_id"
+    }
+}
+
+private struct CreatorEventCreatePayload: Encodable {
+    let title: String
+    let description: String
+    let venueName: String
+    let venueAddress: String
+    let googlePlaceId: String
+    let city: String
+    let cityPlaceId: String
+    let lat: Double?
+    let lng: Double?
+    let startAt: String
+    let endAt: String
+    let capacity: Int
+    let category: String
+    let tags: [String]
+    let imageURL: String
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case venueName = "venue_name"
+        case venueAddress = "venue_address"
+        case googlePlaceId = "google_place_id"
+        case city
+        case cityPlaceId = "city_place_id"
+        case lat
+        case lng
+        case startAt = "start_at"
+        case endAt = "end_at"
+        case capacity
+        case category
+        case tags
+        case imageURL = "image_url"
+    }
+}
+
+private struct CreatorOfferCreatePayload: Encodable {
+    let title: String
+    let description: String
+    let perk: String
+    let venue: Int
+    let validFrom: String
+    let validUntil: String
+    let recurrence: String
+    let capacity: Int?
+    let autoCreateHangout: Bool
+    let terms: String
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case perk
+        case venue
+        case validFrom = "valid_from"
+        case validUntil = "valid_until"
+        case recurrence
+        case capacity
+        case autoCreateHangout = "auto_create_hangout"
+        case terms
+    }
+}
+
+private struct CreatorEventUpdatePayload: Encodable {
+    let title: String
+    let startAt: String
+    let endAt: String
+    let capacity: Int
+    let category: String
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case startAt = "start_at"
+        case endAt = "end_at"
+        case capacity
+        case category
+    }
+}
+
+private struct CreatorOfferUpdatePayload: Encodable {
+    let title: String
+    let perk: String
+    let validUntil: String
+    let recurrence: String
+    let capacity: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case perk
+        case validUntil = "valid_until"
+        case recurrence
+        case capacity
+    }
+}
+
+private struct CreatorVenueCreatePayload: Encodable {
+    let name: String
+    let category: String
+    let googlePlaceId: String
+    let address: String
+    let city: String
+    let cityPlaceId: String
+    let lat: Double?
+    let lng: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case category
+        case googlePlaceId = "google_place_id"
+        case address
+        case city
+        case cityPlaceId = "city_place_id"
+        case lat
+        case lng
     }
 }
 
@@ -697,10 +831,166 @@ final class AppSessionStore: ObservableObject {
         }
     }
 
+    func createCreatorEvent(
+        title: String,
+        description: String,
+        venueName: String,
+        venueAddress: String,
+        startAt: Date,
+        endAt: Date,
+        capacity: Int,
+        category: String
+    ) async throws -> CreatorEventFeedItem {
+        let profile = currentProfile
+        let payload = CreatorEventCreatePayload(
+            title: title,
+            description: description,
+            venueName: venueName,
+            venueAddress: venueAddress,
+            googlePlaceId: "",
+            city: profile?.cityName ?? "",
+            cityPlaceId: profile?.cityPlaceId ?? "",
+            lat: nil,
+            lng: nil,
+            startAt: iso8601String(from: startAt),
+            endAt: iso8601String(from: endAt),
+            capacity: capacity,
+            category: category,
+            tags: [],
+            imageURL: ""
+        )
+        return try await authorizedCall { [self] accessToken in
+            try await discoverAPI.createCreatorEvent(payload: payload, accessToken: accessToken)
+        }
+    }
+
+    func createCreatorOffer(
+        title: String,
+        description: String,
+        perk: String,
+        venueID: Int,
+        validFrom: Date,
+        validUntil: Date,
+        recurrence: String,
+        capacity: Int?,
+        autoCreateHangout: Bool,
+        terms: String
+    ) async throws -> CreatorOfferFeedItem {
+        let payload = CreatorOfferCreatePayload(
+            title: title,
+            description: description,
+            perk: perk,
+            venue: venueID,
+            validFrom: iso8601String(from: validFrom),
+            validUntil: iso8601String(from: validUntil),
+            recurrence: recurrence,
+            capacity: capacity,
+            autoCreateHangout: autoCreateHangout,
+            terms: terms
+        )
+        return try await authorizedCall { [self] accessToken in
+            try await discoverAPI.createCreatorOffer(payload: payload, accessToken: accessToken)
+        }
+    }
+
+    func createCreatorVenue(
+        name: String,
+        category: String,
+        address: String,
+        city: String
+    ) async throws -> CreatorVenueFeedItem {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        let placeSeed = [normalizedName, normalizedAddress, normalizedCity]
+            .joined(separator: "|")
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+
+        let payload = CreatorVenueCreatePayload(
+            name: normalizedName,
+            category: category,
+            googlePlaceId: "manual-\(placeSeed)-\(UUID().uuidString.prefix(8))",
+            address: normalizedAddress,
+            city: normalizedCity,
+            cityPlaceId: currentProfile?.cityPlaceId ?? "",
+            lat: nil,
+            lng: nil
+        )
+        return try await authorizedCall { [self] accessToken in
+            try await discoverAPI.createCreatorVenue(payload: payload, accessToken: accessToken)
+        }
+    }
+
+    func updateCreatorEvent(
+        id: Int,
+        title: String,
+        startAt: Date,
+        endAt: Date,
+        capacity: Int,
+        category: String
+    ) async throws -> CreatorEventFeedItem {
+        let payload = CreatorEventUpdatePayload(
+            title: title,
+            startAt: iso8601String(from: startAt),
+            endAt: iso8601String(from: endAt),
+            capacity: capacity,
+            category: category
+        )
+        return try await authorizedCall { [self] accessToken in
+            try await discoverAPI.updateCreatorEvent(id: id, payload: payload, accessToken: accessToken)
+        }
+    }
+
+    func cancelCreatorEvent(id: Int) async throws -> CreatorEventFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.cancelCreatorEvent(id: id, accessToken: accessToken)
+        }
+    }
+
+    func updateCreatorOffer(
+        id: Int,
+        title: String,
+        perk: String,
+        validUntil: Date,
+        recurrence: String,
+        capacity: Int?
+    ) async throws -> CreatorOfferFeedItem {
+        let payload = CreatorOfferUpdatePayload(
+            title: title,
+            perk: perk,
+            validUntil: iso8601String(from: validUntil),
+            recurrence: recurrence,
+            capacity: capacity
+        )
+        return try await authorizedCall { [self] accessToken in
+            try await discoverAPI.updateCreatorOffer(id: id, payload: payload, accessToken: accessToken)
+        }
+    }
+
+    func pauseCreatorOffer(id: Int) async throws -> CreatorOfferFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.pauseCreatorOffer(id: id, accessToken: accessToken)
+        }
+    }
+
+    func resumeCreatorOffer(id: Int) async throws -> CreatorOfferFeedItem {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.resumeCreatorOffer(id: id, accessToken: accessToken)
+        }
+    }
+
     func joinEventSolo(id: Int) async throws {
         _ = try await authorizedCall { [self] accessToken in
             try await discoverAPI.joinEventSolo(id: id, accessToken: accessToken)
         } as EventSoloJoinResponse
+    }
+
+    func fetchMySoloJoins() async throws -> [EventSoloJoinFeedItem] {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.fetchMySoloJoins(accessToken: accessToken)
+        }
     }
 
     func fetchHangouts() async throws -> [HangoutFeedItem] {
@@ -733,17 +1023,18 @@ final class AppSessionStore: ObservableObject {
         } as EmptyResponse
     }
 
-    func createHangout(from draft: CreateHangoutDraft) async throws -> CreateHangoutResponse {
-        if draft.sourceType == .offer {
+    func createHangout(from submission: CreateHangoutSubmission) async throws -> CreateHangoutResponse {
+        if submission.sourceType == .offer {
             throw AppSessionError.httpStatus(400, "Offer-sourced hangouts are not exposed by the backend create endpoint yet.")
         }
-        if draft.visibility == .inviteOnly {
+        if submission.visibility == .inviteOnly {
             throw AppSessionError.httpStatus(400, "Private hangouts are not fully supported by the current backend create serializer yet.")
         }
 
-        let payload = makeCreateHangoutPayload(from: draft)
+        let payload = makeCreateHangoutPayload(from: submission)
+        print("[AppSessionStore] createHangout start title=\(submission.title) source=\(submission.sourceType.rawValue) coverBytes=\(submission.coverImageData?.count ?? 0)")
         return try await authorizedCall { [self] accessToken in
-            try await discoverAPI.createHangout(payload: payload, coverJPEGData: draft.coverImageData, accessToken: accessToken)
+            try await discoverAPI.createHangout(payload: payload, coverJPEGData: submission.coverImageData, accessToken: accessToken)
         }
     }
 
@@ -1023,47 +1314,48 @@ final class AppSessionStore: ObservableObject {
         return (firstName, parts.dropFirst().joined(separator: " "))
     }
 
-    private func makeCreateHangoutPayload(from draft: CreateHangoutDraft) -> CreateHangoutPayload {
-        let startAt = draft.startAt
-        let endAt = draft.startAt.addingTimeInterval(Double(max(1, draft.durationHours)) * 3600)
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime]
-
-        return CreateHangoutPayload(
-            languages: draft.languages.compactMap(languageCode(for:)),
-            title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
-            description: draft.description.trimmingCharacters(in: .whitespacesAndNewlines),
-            cityPlaceId: draft.cityPlaceID.trimmingCharacters(in: .whitespacesAndNewlines),
-            cityName: draft.cityName.trimmingCharacters(in: .whitespacesAndNewlines),
-            locationName: draft.locationName.trimmingCharacters(in: .whitespacesAndNewlines),
-            locationAddress: draft.locationAddress.trimmingCharacters(in: .whitespacesAndNewlines),
-            lat: draft.latitude,
-            lng: draft.longitude,
-            startAt: draft.sourceType == .event ? nil : iso.string(from: startAt),
-            endAt: draft.sourceType == .event ? nil : iso.string(from: endAt),
-            capacity: draft.isCapacityUnlimited ? nil : draft.capacity,
-            isCapacityUnlimited: draft.isCapacityUnlimited,
-            isTimeFlexible: draft.isTimeFlexible,
-            visibility: draft.visibility == .inviteOnly ? "invite_only" : "public",
-            allowWaitlist: true,
-            vibe: backendVibe(for: draft.vibe),
-            isMicro: draft.isMicro,
-            isLive: draft.isLive,
-            genderPreference: backendGenderPreference(for: draft.genderPreference),
-            audienceTags: draft.audienceTags,
-            sourceEventId: draft.sourceType == .event ? draft.sourceEventID : nil
-        )
+    private func iso8601String(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
     }
 
-    private func languageCode(for label: String) -> String? {
-        switch label.lowercased() {
-        case "english": return "en"
-        case "spanish": return "es"
-        case "german": return "de"
-        case "french": return "fr"
-        case "italian": return "it"
-        default: return nil
-        }
+    private func makeCreateHangoutPayload(from submission: CreateHangoutSubmission) -> CreateHangoutPayload {
+        let startAt = submission.startAt
+        let endAt = submission.startAt.addingTimeInterval(Double(max(1, submission.durationHours)) * 3600)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        let normalizedLanguages = Array(
+            NSOrderedSet(array: submission.languages.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+        )
+            .compactMap { $0 as? String }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+
+        return CreateHangoutPayload(
+            languages: Array(normalizedLanguages),
+            title: String(submission.title).trimmingCharacters(in: .whitespacesAndNewlines),
+            description: String(submission.description).trimmingCharacters(in: .whitespacesAndNewlines),
+            cityPlaceId: String(submission.cityPlaceID).trimmingCharacters(in: .whitespacesAndNewlines),
+            cityName: String(submission.cityName).trimmingCharacters(in: .whitespacesAndNewlines),
+            locationName: String(submission.locationName).trimmingCharacters(in: .whitespacesAndNewlines),
+            locationAddress: String(submission.locationAddress).trimmingCharacters(in: .whitespacesAndNewlines),
+            lat: submission.latitude,
+            lng: submission.longitude,
+            startAt: submission.sourceType == .event ? nil : iso.string(from: startAt),
+            endAt: submission.sourceType == .event ? nil : iso.string(from: endAt),
+            capacity: submission.isCapacityUnlimited ? nil : submission.capacity,
+            isCapacityUnlimited: submission.isCapacityUnlimited,
+            isTimeFlexible: submission.isTimeFlexible,
+            visibility: submission.visibility == .inviteOnly ? "invite_only" : "public",
+            allowWaitlist: true,
+            vibe: backendVibe(for: submission.vibe),
+            isMicro: submission.isMicro,
+            isLive: submission.isLive,
+            genderPreference: backendGenderPreference(for: submission.genderPreference),
+            audienceTags: Array(submission.audienceTags).map { String($0) },
+            sourceEventId: submission.sourceType == .event ? submission.sourceEventID : nil
+        )
     }
 
     private func backendVibe(for vibe: HangoutVibe) -> String {
@@ -1152,6 +1444,11 @@ private final class AuthTokenStore {
 }
 
 private final class AuthAPIService {
+    static let loginPath = "/api/auth/login/"
+    static let registerPath = "/api/auth/register/"
+    static let passwordResetPath = "/api/auth/password/reset/"
+    static let clientMarker = "ios-auth-v3"
+
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
@@ -1173,7 +1470,7 @@ private final class AuthAPIService {
 
     func login(username: String, password: String) async throws -> AuthSessionPayload {
         let body = try encoder.encode(["username": username, "password": password])
-        let data = try await request(path: "/api/auth/login/", method: "POST", body: body)
+        let data = try await request(path: Self.loginPath, method: "POST", body: body)
         return try decode(AuthSessionPayload.self, from: data)
     }
 
@@ -1184,13 +1481,13 @@ private final class AuthAPIService {
             "password1": password,
             "password2": passwordConfirmation
         ])
-        let data = try await request(path: "/api/auth/registration/", method: "POST", body: body)
+        let data = try await request(path: Self.registerPath, method: "POST", body: body)
         return try decode(AuthSessionPayload.self, from: data)
     }
 
     func requestPasswordReset(email: String) async throws {
         let body = try encoder.encode(["email": email])
-        _ = try await request(path: "/api/auth/password/reset/", method: "POST", body: body)
+        _ = try await request(path: Self.passwordResetPath, method: "POST", body: body)
     }
 
     func loginWithApple(authorizationCode: String, identityToken: String?) async throws -> AuthSessionPayload {
@@ -1251,6 +1548,7 @@ private final class AuthAPIService {
         var request = URLRequest(url: AppConfig.url(for: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(Self.clientMarker, forHTTPHeaderField: "X-FZ-Client")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
@@ -1507,9 +1805,59 @@ private final class DiscoverAPIService {
         return try decode([CreatorOfferFeedItem].self, from: data)
     }
 
+    func createCreatorEvent(payload: CreatorEventCreatePayload, accessToken: String) async throws -> CreatorEventFeedItem {
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/events/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(CreatorEventFeedItem.self, from: data)
+    }
+
+    func createCreatorOffer(payload: CreatorOfferCreatePayload, accessToken: String) async throws -> CreatorOfferFeedItem {
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/offers/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(CreatorOfferFeedItem.self, from: data)
+    }
+
+    func createCreatorVenue(payload: CreatorVenueCreatePayload, accessToken: String) async throws -> CreatorVenueFeedItem {
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/venues/", method: "POST", body: body, accessToken: accessToken)
+        return try decode(CreatorVenueFeedItem.self, from: data)
+    }
+
+    func updateCreatorEvent(id: Int, payload: CreatorEventUpdatePayload, accessToken: String) async throws -> CreatorEventFeedItem {
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/events/\(id)/", method: "PATCH", body: body, accessToken: accessToken)
+        return try decode(CreatorEventFeedItem.self, from: data)
+    }
+
+    func cancelCreatorEvent(id: Int, accessToken: String) async throws -> CreatorEventFeedItem {
+        let data = try await request(path: "/api/events/\(id)/cancel/", method: "POST", accessToken: accessToken)
+        return try decode(CreatorEventFeedItem.self, from: data)
+    }
+
+    func updateCreatorOffer(id: Int, payload: CreatorOfferUpdatePayload, accessToken: String) async throws -> CreatorOfferFeedItem {
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request(path: "/api/offers/\(id)/", method: "PATCH", body: body, accessToken: accessToken)
+        return try decode(CreatorOfferFeedItem.self, from: data)
+    }
+
+    func pauseCreatorOffer(id: Int, accessToken: String) async throws -> CreatorOfferFeedItem {
+        let data = try await request(path: "/api/offers/\(id)/pause/", method: "POST", accessToken: accessToken)
+        return try decode(CreatorOfferFeedItem.self, from: data)
+    }
+
+    func resumeCreatorOffer(id: Int, accessToken: String) async throws -> CreatorOfferFeedItem {
+        let data = try await request(path: "/api/offers/\(id)/resume/", method: "POST", accessToken: accessToken)
+        return try decode(CreatorOfferFeedItem.self, from: data)
+    }
+
     func joinEventSolo(id: Int, accessToken: String) async throws -> EventSoloJoinResponse {
         let data = try await request(path: "/api/events/\(id)/join-solo/", method: "POST", accessToken: accessToken)
         return try decode(EventSoloJoinResponse.self, from: data)
+    }
+
+    func fetchMySoloJoins(accessToken: String) async throws -> [EventSoloJoinFeedItem] {
+        let data = try await request(path: "/api/events/solo-joins/me/", accessToken: accessToken)
+        return try decode([EventSoloJoinFeedItem].self, from: data)
     }
 
     func requestJoinHangout(id: Int, message: String, accessToken: String) async throws -> HangoutJoinRequestFeedItem {
@@ -1556,22 +1904,27 @@ private final class DiscoverAPIService {
 
     func createHangout(payload: CreateHangoutPayload, coverJPEGData: Data?, accessToken: String) async throws -> CreateHangoutResponse {
         if let coverJPEGData {
+            print("[DiscoverAPI] createHangout multipart start coverBytes=\(coverJPEGData.count)")
             let boundary = "Boundary-\(UUID().uuidString)"
+            let multipartFileURL = try Self.writeMultipartHangoutFile(payload: payload, jpegData: coverJPEGData, boundary: boundary)
+            defer { try? FileManager.default.removeItem(at: multipartFileURL) }
+            let multipartSize = (try? FileManager.default.attributesOfItem(atPath: multipartFileURL.path)[.size] as? NSNumber)?.intValue ?? 0
+            print("[DiscoverAPI] multipart file ready bytes=\(multipartSize)")
             var request = URLRequest(url: AppConfig.url(for: "/api/hangouts/"))
             request.httpMethod = "POST"
+            request.timeoutInterval = 30
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.httpBody = multipartHangoutBody(payload: payload, jpegData: coverJPEGData, boundary: boundary)
-
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await session.upload(for: request, fromFile: multipartFileURL)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw AppSessionError.invalidResponse
             }
+            print("[DiscoverAPI] createHangout multipart response status=\(httpResponse.statusCode) bytes=\(data.count)")
 
             switch httpResponse.statusCode {
             case 200 ..< 300:
-                return try decode(CreateHangoutResponse.self, from: data)
+                return try decodeCreateHangoutResponse(from: data)
             case 401:
                 throw AppSessionError.unauthorized
             default:
@@ -1581,8 +1934,10 @@ private final class DiscoverAPIService {
         }
 
         let body = try JSONEncoder().encode(payload)
+        print("[DiscoverAPI] createHangout json start bytes=\(body.count)")
         let data = try await request(path: "/api/hangouts/", method: "POST", body: body, accessToken: accessToken)
-        return try decode(CreateHangoutResponse.self, from: data)
+        print("[DiscoverAPI] createHangout json success bytes=\(data.count)")
+        return try decodeCreateHangoutResponse(from: data)
     }
 
     private func request(path: String, method: String = "GET", body: Data? = nil, accessToken: String) async throws -> Data {
@@ -1606,7 +1961,8 @@ private final class DiscoverAPIService {
         case 401:
             throw AppSessionError.unauthorized
         default:
-            throw AppSessionError.httpStatus(httpResponse.statusCode, "Failed to fetch discovery data.")
+            let message = decodeServerMessage(data: data) ?? "Failed to fetch discovery data."
+            throw AppSessionError.httpStatus(httpResponse.statusCode, message)
         }
     }
 
@@ -1618,9 +1974,51 @@ private final class DiscoverAPIService {
         }
     }
 
-    private func multipartHangoutBody(payload: CreateHangoutPayload, jpegData: Data, boundary: String) -> Data {
-        var body = Data()
+    private func decodeCreateHangoutResponse(from data: Data) throws -> CreateHangoutResponse {
+        if let response = try? decoder.decode(CreateHangoutResponse.self, from: data) {
+            return response
+        }
 
+        if let hangout = try? decoder.decode(HangoutFeedItem.self, from: data) {
+            return CreateHangoutResponse(
+                id: hangout.id,
+                sourceType: hangout.sourceType,
+                title: hangout.title,
+                description: hangout.description,
+                cityName: hangout.cityName,
+                locationName: hangout.locationName,
+                startAt: hangout.startAt,
+                endAt: hangout.endAt,
+                capacity: hangout.capacity,
+                approvedParticipantsCount: hangout.approvedParticipantsCount,
+                isLive: hangout.isLive,
+                isMicro: hangout.isMicro,
+                hostUsername: hangout.hostUsername
+            )
+        }
+
+        let message = decodeServerMessage(data: data) ?? "Unexpected create hangout response."
+        throw AppSessionError.httpStatus(200, message)
+    }
+
+    private static func writeMultipartHangoutFile(payload: CreateHangoutPayload, jpegData: Data, boundary: String) throws -> URL {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("hangout-\(UUID().uuidString).multipart")
+        FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: fileURL)
+        do {
+            try writeMultipartPayload(payload: payload, to: handle, boundary: boundary)
+            try writeMultipartFileField(name: "cover_image", filename: "cover.jpg", mimeType: "image/jpeg", data: jpegData, to: handle, boundary: boundary)
+            try write("--\(boundary)--\r\n", to: handle)
+            try handle.close()
+            return fileURL
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: fileURL)
+            throw error
+        }
+    }
+
+    private static func writeMultipartPayload(payload: CreateHangoutPayload, to handle: FileHandle, boundary: String) throws {
         if
             let encoded = try? JSONEncoder().encode(payload),
             let object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
@@ -1628,36 +2026,41 @@ private final class DiscoverAPIService {
             for (key, value) in object {
                 switch value {
                 case let value as String:
-                    appendMultipartField(name: key, value: value, to: &body, boundary: boundary)
+                    try writeMultipartField(name: key, value: value, to: handle, boundary: boundary)
                 case let value as Bool:
-                    appendMultipartField(name: key, value: value ? "true" : "false", to: &body, boundary: boundary)
+                    try writeMultipartField(name: key, value: value ? "true" : "false", to: handle, boundary: boundary)
                 case let value as Int:
-                    appendMultipartField(name: key, value: String(value), to: &body, boundary: boundary)
+                    try writeMultipartField(name: key, value: String(value), to: handle, boundary: boundary)
                 case let value as Double:
-                    appendMultipartField(name: key, value: String(value), to: &body, boundary: boundary)
+                    try writeMultipartField(name: key, value: String(value), to: handle, boundary: boundary)
                 case let values as [String]:
                     for value in values {
-                        appendMultipartField(name: key, value: value, to: &body, boundary: boundary)
+                        try writeMultipartField(name: key, value: value, to: handle, boundary: boundary)
                     }
                 default:
                     break
                 }
             }
         }
-
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"cover_image\"; filename=\"cover.jpg\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-        body.append(jpegData)
-        body.append("\r\n".data(using: .utf8)!)
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        return body
     }
 
-    private func appendMultipartField(name: String, value: String, to body: inout Data, boundary: String) {
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(value)\r\n".data(using: .utf8)!)
+    private static func writeMultipartField(name: String, value: String, to handle: FileHandle, boundary: String) throws {
+        try write("--\(boundary)\r\n", to: handle)
+        try write("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n", to: handle)
+        try write("\(value)\r\n", to: handle)
+    }
+
+    private static func writeMultipartFileField(name: String, filename: String, mimeType: String, data: Data, to handle: FileHandle, boundary: String) throws {
+        try write("--\(boundary)\r\n", to: handle)
+        try write("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n", to: handle)
+        try write("Content-Type: \(mimeType)\r\n\r\n", to: handle)
+        try handle.write(contentsOf: data)
+        try write("\r\n", to: handle)
+    }
+
+    private static func write(_ string: String, to handle: FileHandle) throws {
+        guard let data = string.data(using: .utf8) else { return }
+        try handle.write(contentsOf: data)
     }
 
     private func decodeServerMessage(data: Data) -> String? {
