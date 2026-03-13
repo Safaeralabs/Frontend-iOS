@@ -1329,6 +1329,8 @@ private func authFriendlyMessage(for error: Error, context: AuthFailureContext) 
             return "Something unexpected came back from the server. Please try again."
         case let .httpStatus(code, message):
             return authFriendlyMessageFromStatus(code: code, message: message, context: context)
+        case let .invalidInput(message):
+            return message
         }
     }
 

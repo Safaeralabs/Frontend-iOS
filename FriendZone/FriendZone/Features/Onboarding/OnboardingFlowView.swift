@@ -1,3 +1,4 @@
+import MapKit
 import SwiftUI
 
 private enum OnboardingStep: Int, CaseIterable {
@@ -222,9 +223,9 @@ struct OnboardingFlowView: View {
                 .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                 .frame(minWidth: 44, alignment: .trailing)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, topInset + 14)
-        .padding(.bottom, 14)
+        .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+        .padding(.top, topInset + FriendZoneTheme.Chrome.topOffset)
+        .padding(.bottom, FriendZoneTheme.Chrome.topOffset)
     }
 
     @ViewBuilder
@@ -548,109 +549,332 @@ private struct OnboardingGenderStep: View {
 }
 
 private struct OnboardingLocationStep: View {
+    @EnvironmentObject private var session: AppSessionStore
+
     @Binding var city: String
     @Binding var cityPlaceId: String
     let onContinue: () -> Void
 
-    private let suggestions = ["Munich", "Berlin", "Hamburg", "Frankfurt", "Cologne", "Stuttgart"]
+    @StateObject private var citySearch = ApplePlaceSearchModel(resultTypes: [.address])
+    @State private var errorMessage = ""
+    @State private var isResolvingCity = false
+    @State private var selectedCityKey = ""
+    @State private var isCityEditing = true
 
     var body: some View {
         OnboardingStepShell {
             VStack(spacing: 24) {
                 OnboardingHeader(
                     title: "Where are you based?",
-                    subtitle: "Help us show you relevant hangouts nearby"
+                    subtitle: "Pick your real home base so nearby plans feel actually nearby"
                 )
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("City")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                    onboardingLocationIntroCard
 
-                    TextField("Start typing your city...", text: $city)
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .medium))
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                        .padding(.horizontal, 16)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("City")
+                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
+                            TextField("Search your city...", text: $citySearch.query)
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .medium))
+                                .textInputAutocapitalization(.words)
+                                .autocorrectionDisabled()
+                                .disabled(!isCityEditing)
+                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                            if hasResolvedCity && !isCityEditing {
+                                Button {
+                                    isCityEditing = true
+                                    errorMessage = ""
+                                    citySearch.clearSuggestions()
+                                } label: {
+                                    Text("✏️")
+                                        .font(.system(size: 15))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 14)
                         .frame(height: 52)
-                        .background(Color.black.opacity(0.04))
+                        .background(isCityEditing ? Color.black.opacity(0.04) : Color.black.opacity(0.025))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(isCityEditing ? FriendZoneTheme.Colors.borderSubtle : Color(hex: "#86EFAC"), lineWidth: 1)
+                        }
+                        .onChange(of: citySearch.query) { newValue in
+                            guard isCityEditing else { return }
+                            errorMessage = ""
+
+                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let normalizedQuery = normalized(trimmed)
+
+                            guard !normalizedQuery.isEmpty else {
+                                city = ""
+                                cityPlaceId = ""
+                                selectedCityKey = ""
+                                citySearch.clearSuggestions()
+                                return
+                            }
+
+                            if !selectedCityKey.isEmpty && normalizedQuery != selectedCityKey {
+                                city = ""
+                                cityPlaceId = ""
+                                selectedCityKey = ""
+                            }
+                        }
+                    }
+
+                    if citySearch.isSearching || isResolvingCity {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if isCityEditing && !citySearch.suggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(citySearch.suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                Button {
+                                    Task { await applyCitySuggestion(suggestion) }
+                                } label: {
+                                    HStack(alignment: .top, spacing: 12) {
+                                        ZStack {
+                                            Circle()
+                                                .fill(FriendZoneTheme.Colors.primarySoft)
+                                                .frame(width: 34, height: 34)
+
+                                            Text("🏙️")
+                                                .font(.system(size: 16))
+                                        }
+
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(suggestion.title)
+                                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                                                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                            if !suggestion.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                                Text(suggestion.subtitle)
+                                                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                                                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                if index < citySearch.suggestions.count - 1 {
+                                    Divider()
+                                        .overlay(FriendZoneTheme.Colors.borderSubtle)
+                                }
+                            }
+                        }
+                        .background(FriendZoneTheme.Colors.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
                         }
-                        .onChange(of: city) { newValue in
-                            cityPlaceId = slug(from: newValue)
-                        }
-
-                    HStack(spacing: 8) {
-                        ForEach(suggestions.filter { !city.lowercased().contains($0.lowercased()) }.prefix(3), id: \.self) { item in
-                            Button(item) {
-                                city = item
-                                cityPlaceId = slug(from: item)
-                            }
-                            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                            .foregroundColor(FriendZoneTheme.Colors.primary)
-                            .padding(.horizontal, 10)
-                            .frame(height: 32)
-                            .background(FriendZoneTheme.Colors.primarySoft)
-                            .clipShape(Capsule())
-                            .buttonStyle(.plain)
-                        }
+                    } else if isCityEditing && !normalized(citySearch.query).isEmpty && !hasResolvedCity && !citySearch.isSearching {
+                        onboardingLocationPromptCard(
+                            title: "Pick one result from the list",
+                            detail: "Only a city selected from the dropdown can be used."
+                        )
                     }
 
-                    if !city.isEmpty {
+                    if !errorMessage.isEmpty {
                         HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(FriendZoneTokens.Colors.successStrong)
-                            Text(city)
-                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                                .foregroundColor(FriendZoneTokens.Colors.successStrong)
+                            Text("⚠️")
+                            Text(errorMessage)
+                                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
                         }
-                        .padding(.horizontal, 12)
-                        .frame(height: 40)
-                        .background(FriendZoneTheme.Colors.success.opacity(0.08))
+                        .foregroundColor(FriendZoneTokens.Colors.errorStrong)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(FriendZoneTheme.Colors.error.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(FriendZoneTheme.Colors.success.opacity(0.35), lineWidth: 1)
+                                .stroke(FriendZoneTheme.Colors.error.opacity(0.25), lineWidth: 1)
                         }
                     }
-                }
 
-                HStack(alignment: .top, spacing: 10) {
-                    Text("💡")
-                    Text("Type your city name and select it. This helps us match you with nearby hangouts.")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
-                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                        .lineSpacing(2)
-                }
-                .padding(14)
-                .background(FriendZoneTheme.Colors.surfaceMuted)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+                    if hasResolvedCity {
+                        selectedCityCard
+                    } else {
+                        onboardingLocationPromptCard(
+                            title: "No city selected yet",
+                            detail: "Search and choose a real result to continue."
+                        )
+                    }
                 }
 
                 OnboardingPrimaryButton(
                     title: "Continue",
-                    disabled: city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    disabled: !hasResolvedCity || isResolvingCity,
                     action: {
                         city = city.trimmingCharacters(in: .whitespacesAndNewlines)
-                        cityPlaceId = slug(from: city)
                         onContinue()
                     }
                 )
             }
         }
+        .onAppear {
+            if citySearch.query.isEmpty && !city.isEmpty {
+                citySearch.query = city
+            }
+            if hasResolvedCity {
+                selectedCityKey = normalized(city)
+                isCityEditing = false
+            }
+        }
     }
 
-    private func slug(from value: String) -> String {
+    private var hasResolvedCity: Bool {
+        !city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !cityPlaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var onboardingLocationIntroCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(hasResolvedCity ? "📍" : "🏙️")
+                .font(.system(size: 22))
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(hasResolvedCity ? "Home base locked in" : "Choose your home base")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text(
+                    hasResolvedCity
+                        ? "We will use \(city) to tune discovery, nearby hangouts and local recommendations."
+                        : "Search and select a real result from the list. We will use that city to personalize everything nearby."
+                )
+                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                .lineSpacing(2)
+            }
+        }
+        .padding(14)
+        .background(FriendZoneTheme.Colors.surfaceMuted)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private var selectedCityCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(Color(hex: "#16A34A"))
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Based in \(city)")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
+                    .foregroundColor(Color(hex: "#166534"))
+
+                Text("This becomes your local home base for hangouts, events and discovery.")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    .lineSpacing(2)
+
+                Text("Need to switch it? Tap the pencil.")
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
+                    .foregroundColor(Color(hex: "#166534"))
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Color(hex: "#F0FDF4"))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: "#86EFAC"), lineWidth: 1)
+        }
+    }
+
+    private func onboardingLocationPromptCard(title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("✨")
+                .font(.system(size: 18))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text(detail)
+                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    .lineSpacing(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(FriendZoneTheme.Colors.surfaceMuted)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    @MainActor
+    private func applyCitySuggestion(_ suggestion: ApplePlaceSuggestion) async {
+        errorMessage = ""
+        isResolvingCity = true
+        defer { isResolvingCity = false }
+
+        do {
+            let resolved = try await citySearch.resolve(suggestion)
+            guard let latitude = resolved.latitude, let longitude = resolved.longitude else {
+                cityPlaceId = ""
+                selectedCityKey = ""
+                errorMessage = "We could not confirm that city. Pick a different result from the list."
+                return
+            }
+
+            let guessed = try await session.guessLocation(
+                lat: latitude,
+                lng: longitude,
+                cityName: resolved.cityName ?? suggestion.title,
+                country: resolved.countryCode ?? resolved.countryName
+            )
+            selectedCityKey = normalized(guessed.cityName)
+            city = guessed.cityName
+            cityPlaceId = guessed.cityPlaceId
+            citySearch.query = guessed.cityName
+            citySearch.clearSuggestions()
+            isCityEditing = false
+        } catch {
+            city = ""
+            cityPlaceId = ""
+            selectedCityKey = ""
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func normalized(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "-")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
     }
 }
 

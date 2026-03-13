@@ -401,6 +401,7 @@
 				INFOPLIST_KEY_FRIENDZONE_BASE_URL = "http://127.0.0.1:8000";
 				INFOPLIST_KEY_GOOGLE_CLIENT_ID = "";
 				INFOPLIST_KEY_GOOGLE_REDIRECT_SCHEME = "";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "FriendZone uses your location to center the map around you and show nearby plans.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -436,6 +437,7 @@
 				INFOPLIST_KEY_FRIENDZONE_BASE_URL = "http://127.0.0.1:8000";
 				INFOPLIST_KEY_GOOGLE_CLIENT_ID = "";
 				INFOPLIST_KEY_GOOGLE_REDIRECT_SCHEME = "";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "FriendZone uses your location to center the map around you and show nearby plans.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

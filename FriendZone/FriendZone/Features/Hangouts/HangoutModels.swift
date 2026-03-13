@@ -76,6 +76,24 @@ enum HangoutVisibilityOption: String, CaseIterable, Sendable {
         case .inviteOnly: return "Private"
         }
     }
+
+    var detailTitle: String {
+        switch self {
+        case .public: return "Public"
+        case .inviteOnly: return "Private circle"
+        }
+    }
+
+    init?(backendRawValue: String) {
+        switch backendRawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "public":
+            self = .public
+        case "invite_only", "inviteonly", "private":
+            self = .inviteOnly
+        default:
+            return nil
+        }
+    }
 }
 
 enum HangoutGenderPreference: String, CaseIterable, Sendable {
@@ -85,9 +103,113 @@ enum HangoutGenderPreference: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .any: return "Any"
-        case .womenOnly: return "Women"
-        case .menOnly: return "Men"
+        case .any: return "🌍 Everyone"
+        case .womenOnly: return "💅 Gurlz Only"
+        case .menOnly: return "🕺 The Boyz Only"
+        }
+    }
+
+    var detailTitle: String {
+        switch self {
+        case .any: return "Everyone"
+        case .womenOnly: return "Women only"
+        case .menOnly: return "Men only"
+        }
+    }
+
+    init?(backendRawValue: String) {
+        switch backendRawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "any":
+            self = .any
+        case "women_only", "women", "female":
+            self = .womenOnly
+        case "men_only", "men", "male":
+            self = .menOnly
+        default:
+            return nil
+        }
+    }
+}
+
+enum HangoutCreateVibe: String, CaseIterable, Sendable {
+    case chill = "chill"
+    case social = "social"
+    case party = "party"
+    case creative = "creative"
+    case outdoors = "outdoors"
+    case drinks = "drinks"
+    case deepTalks = "deep talks"
+    case boardGames = "board games"
+    case culture = "culture"
+    case sporty = "sporty"
+    case food = "food"
+
+    var title: String {
+        switch self {
+        case .chill: return "Chill"
+        case .social: return "Social"
+        case .party: return "Party"
+        case .creative: return "Creative"
+        case .outdoors: return "Outdoors"
+        case .drinks: return "Drinks"
+        case .deepTalks: return "Deep Talks"
+        case .boardGames: return "Board Games"
+        case .culture: return "Culture"
+        case .sporty: return "Sporty"
+        case .food: return "Food"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .chill: return "🛋️"
+        case .social: return "🫶"
+        case .party: return "🎉"
+        case .creative: return "🎨"
+        case .outdoors: return "🌿"
+        case .drinks: return "🍸"
+        case .deepTalks: return "🗣️"
+        case .boardGames: return "🎲"
+        case .culture: return "🎭"
+        case .sporty: return "⚽"
+        case .food: return "🍝"
+        }
+    }
+}
+
+enum HangoutAudienceTagOption: String, CaseIterable, Sendable {
+    case expatsWelcome = "expats_welcome"
+    case lgbtqFriendly = "lgbtq_friendly"
+    case students
+    case professionals
+    case noAlcohol = "no_alcohol"
+    case dogFriendly = "dog_friendly"
+    case youngAdults = "young_adults"
+    case thirtyPlus = "thirty_plus"
+
+    var title: String {
+        switch self {
+        case .expatsWelcome: return "Expats"
+        case .lgbtqFriendly: return "LGBTQ+"
+        case .students: return "Students"
+        case .professionals: return "Professionals"
+        case .noAlcohol: return "No Alcohol"
+        case .dogFriendly: return "Dog Friendly"
+        case .youngAdults: return "18-25"
+        case .thirtyPlus: return "30+"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .expatsWelcome: return "🌍"
+        case .lgbtqFriendly: return "🏳️‍🌈"
+        case .students: return "🎓"
+        case .professionals: return "💼"
+        case .noAlcohol: return "🥤"
+        case .dogFriendly: return "🐶"
+        case .youngAdults: return "✨"
+        case .thirtyPlus: return "🪩"
         }
     }
 }
@@ -158,7 +280,7 @@ struct HangoutsAdvancedFilters: Equatable {
 struct CreateHangoutDraft {
     var title: String = ""
     var description: String = ""
-    var vibe: HangoutVibe = .chill
+    var vibe: HangoutCreateVibe = .chill
     var languages: [String] = []
     var locationName: String = ""
     var locationAddress: String = ""
@@ -167,16 +289,17 @@ struct CreateHangoutDraft {
     var latitude: Double? = nil
     var longitude: Double? = nil
     var startAt: Date = Date().addingTimeInterval(60 * 60)
+    var endAt: Date = Date().addingTimeInterval(60 * 60 * 3)
     var durationHours: Int = 2
     var isTimeFlexible: Bool = false
     var capacity: Int = 6
     var isCapacityUnlimited: Bool = false
     var visibility: HangoutVisibilityOption = .public
     var inviteCode: String = ""
+    var inviteCodeHint: String = ""
     var genderPreference: HangoutGenderPreference = .any
     var audienceTags: [String] = []
-    var isMicro: Bool = false
-    var isLive: Bool = false
+    var allowWaitlist: Bool = true
     var sourceType: HangoutSourceType = .hangout
     var sourceLabel: String? = nil
     var sourceEventID: Int? = nil
@@ -188,7 +311,7 @@ struct CreateHangoutDraft {
 struct CreateHangoutSubmission: Sendable {
     let title: String
     let description: String
-    let vibe: HangoutVibe
+    let vibe: HangoutCreateVibe
     let languages: [String]
     let locationName: String
     let locationAddress: String
@@ -197,16 +320,17 @@ struct CreateHangoutSubmission: Sendable {
     let latitude: Double?
     let longitude: Double?
     let startAt: Date
+    let endAt: Date
     let durationHours: Int
     let isTimeFlexible: Bool
     let capacity: Int
     let isCapacityUnlimited: Bool
     let visibility: HangoutVisibilityOption
     let inviteCode: String
+    let inviteCodeHint: String
     let genderPreference: HangoutGenderPreference
     let audienceTags: [String]
-    let isMicro: Bool
-    let isLive: Bool
+    let allowWaitlist: Bool
     let sourceType: HangoutSourceType
     let sourceLabel: String?
     let sourceEventID: Int?
@@ -217,7 +341,7 @@ struct CreateHangoutSubmission: Sendable {
     init(
         title: String,
         description: String,
-        vibe: HangoutVibe,
+        vibe: HangoutCreateVibe,
         languages: [String],
         locationName: String,
         locationAddress: String,
@@ -226,16 +350,17 @@ struct CreateHangoutSubmission: Sendable {
         latitude: Double?,
         longitude: Double?,
         startAt: Date,
+        endAt: Date,
         durationHours: Int,
         isTimeFlexible: Bool,
         capacity: Int,
         isCapacityUnlimited: Bool,
         visibility: HangoutVisibilityOption,
         inviteCode: String,
+        inviteCodeHint: String,
         genderPreference: HangoutGenderPreference,
         audienceTags: [String],
-        isMicro: Bool,
-        isLive: Bool,
+        allowWaitlist: Bool,
         sourceType: HangoutSourceType,
         sourceLabel: String?,
         sourceEventID: Int?,
@@ -254,16 +379,17 @@ struct CreateHangoutSubmission: Sendable {
         self.latitude = latitude
         self.longitude = longitude
         self.startAt = startAt
+        self.endAt = endAt
         self.durationHours = durationHours
         self.isTimeFlexible = isTimeFlexible
         self.capacity = capacity
         self.isCapacityUnlimited = isCapacityUnlimited
         self.visibility = visibility
         self.inviteCode = inviteCode
+        self.inviteCodeHint = inviteCodeHint
         self.genderPreference = genderPreference
         self.audienceTags = audienceTags
-        self.isMicro = isMicro
-        self.isLive = isLive
+        self.allowWaitlist = allowWaitlist
         self.sourceType = sourceType
         self.sourceLabel = sourceLabel
         self.sourceEventID = sourceEventID
@@ -284,16 +410,17 @@ struct CreateHangoutSubmission: Sendable {
         latitude = draft.latitude
         longitude = draft.longitude
         startAt = draft.startAt
+        endAt = draft.endAt
         durationHours = draft.durationHours
         isTimeFlexible = draft.isTimeFlexible
         capacity = draft.capacity
         isCapacityUnlimited = draft.isCapacityUnlimited
         visibility = draft.visibility
         inviteCode = String(draft.inviteCode)
+        inviteCodeHint = String(draft.inviteCodeHint)
         genderPreference = draft.genderPreference
         audienceTags = draft.audienceTags.map { String($0) }
-        isMicro = draft.isMicro
-        isLive = draft.isLive
+        allowWaitlist = draft.allowWaitlist
         sourceType = draft.sourceType
         sourceLabel = draft.sourceLabel.map { String($0) }
         sourceEventID = draft.sourceEventID
@@ -311,30 +438,160 @@ struct HangoutItem: Identifiable {
     let vibe: HangoutVibe
     let cityName: String
     let locationName: String?
+    let locationAddress: String?
+    let latitude: Double?
+    let longitude: Double?
+    let hostUserID: Int?
     let hostName: String
     let startAt: Date
     let endAt: Date
     let capacity: Int
+    let isCapacityUnlimited: Bool?
     let approvedCount: Int
-    let isLive: Bool
-    let isMicro: Bool
     let isJoined: Bool
     let participantNames: [String]
     let coverImageData: Data?
+    let coverImageURL: String?
     let coverSeed: Int
     let distanceKm: Double
     let priceTier: HangoutPriceTier
+    let visibility: HangoutVisibilityOption?
+    let inviteCode: String?
+    let inviteCodeHint: String?
+    let allowWaitlist: Bool?
+    let genderPreference: HangoutGenderPreference?
+    let audienceTags: [String]
+    let languages: [String]
+    let isTimeFlexible: Bool?
+    let sourceEventID: Int?
+    let sourceOfferID: Int?
+
+    init(
+        id: Int,
+        sourceType: HangoutSourceType,
+        title: String,
+        description: String,
+        vibe: HangoutVibe,
+        cityName: String,
+        locationName: String?,
+        locationAddress: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        hostUserID: Int?,
+        hostName: String,
+        startAt: Date,
+        endAt: Date,
+        capacity: Int,
+        isCapacityUnlimited: Bool? = nil,
+        approvedCount: Int,
+        isJoined: Bool,
+        participantNames: [String],
+        coverImageData: Data?,
+        coverImageURL: String? = nil,
+        coverSeed: Int,
+        distanceKm: Double,
+        priceTier: HangoutPriceTier,
+        visibility: HangoutVisibilityOption? = nil,
+        inviteCode: String? = nil,
+        inviteCodeHint: String? = nil,
+        allowWaitlist: Bool? = nil,
+        genderPreference: HangoutGenderPreference? = nil,
+        audienceTags: [String] = [],
+        languages: [String] = [],
+        isTimeFlexible: Bool? = nil,
+        sourceEventID: Int? = nil,
+        sourceOfferID: Int? = nil
+    ) {
+        self.id = id
+        self.sourceType = sourceType
+        self.title = title
+        self.description = description
+        self.vibe = vibe
+        self.cityName = cityName
+        self.locationName = locationName
+        self.locationAddress = locationAddress
+        self.latitude = latitude
+        self.longitude = longitude
+        self.hostUserID = hostUserID
+        self.hostName = hostName
+        self.startAt = startAt
+        self.endAt = endAt
+        self.capacity = capacity
+        self.isCapacityUnlimited = isCapacityUnlimited
+        self.approvedCount = approvedCount
+        self.isJoined = isJoined
+        self.participantNames = participantNames
+        self.coverImageData = coverImageData
+        self.coverImageURL = coverImageURL
+        self.coverSeed = coverSeed
+        self.distanceKm = distanceKm
+        self.priceTier = priceTier
+        self.visibility = visibility
+        self.inviteCode = inviteCode
+        self.inviteCodeHint = inviteCodeHint
+        self.allowWaitlist = allowWaitlist
+        self.genderPreference = genderPreference
+        self.audienceTags = audienceTags
+        self.languages = languages
+        self.isTimeFlexible = isTimeFlexible
+        self.sourceEventID = sourceEventID
+        self.sourceOfferID = sourceOfferID
+    }
 
     var locationDisplay: String {
         locationName ?? cityName
     }
 
+    var hasUnlockedLocation: Bool {
+        isJoined
+    }
+
+    var publicLocationDisplay: String {
+        if hasUnlockedLocation {
+            return locationDisplay
+        }
+
+        let normalizedCity = cityName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedCity.isEmpty {
+            return "Exact spot after you join"
+        }
+        return "Near \(normalizedCity)"
+    }
+
+    var publicLocationHint: String? {
+        hasUnlockedLocation ? nil : "Exact spot after you join"
+    }
+
+    func isHosted(by userID: Int?) -> Bool {
+        guard let userID, let hostUserID else { return false }
+        return hostUserID == userID
+    }
+
+    var hasUnlimitedCapacity: Bool {
+        isCapacityUnlimited == true
+    }
+
     var spotsLeft: Int {
-        max(0, capacity - approvedCount)
+        if hasUnlimitedCapacity {
+            return max(capacity, 1)
+        }
+        return max(0, capacity - approvedCount)
     }
 
     var isFull: Bool {
-        spotsLeft == 0
+        if hasUnlimitedCapacity {
+            return false
+        }
+        return spotsLeft == 0
+    }
+
+    var isLive: Bool {
+        let now = Date()
+        return endAt > now && startAt <= now.addingTimeInterval(3 * 60 * 60)
+    }
+
+    var isMicro: Bool {
+        (2 ... 3).contains(capacity)
     }
 
     var distanceLabel: String {

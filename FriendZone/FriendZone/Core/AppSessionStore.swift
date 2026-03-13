@@ -54,7 +54,7 @@ struct SessionProfileUser: Codable, Equatable {
     let lastName: String?
 }
 
-struct PublicUserProfile: Codable, Equatable, Identifiable {
+struct PublicUserProfile: Decodable, Equatable, Identifiable {
     struct NestedUser: Codable, Equatable {
         let id: Int
         let username: String
@@ -81,14 +81,62 @@ struct PublicUserProfile: Codable, Equatable, Identifiable {
     let linkedinURL: String?
 
     var id: Int { user.id }
+
+    private enum CodingKeys: String, CodingKey {
+        case user
+        case avatarURL
+        case bio
+        case age
+        case gender
+        case cityName
+        case interests
+        case vibes
+        case hangoutsHosted
+        case hostRating
+        case reviewsCount
+        case followersCount
+        case verifiedProfile
+        case isPremium
+        case completionScore
+        case instagramUsername
+        case linkedinURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        user = try container.decode(NestedUser.self, forKey: .user)
+        avatarURL = try container.decodeFlexibleStringIfPresent(forKey: .avatarURL)
+        bio = try container.decodeFlexibleStringIfPresent(forKey: .bio)
+        age = try container.decodeIfPresent(Int.self, forKey: .age)
+        gender = try container.decodeFlexibleStringIfPresent(forKey: .gender)
+        cityName = try container.decodeFlexibleStringIfPresent(forKey: .cityName)
+        interests = try container.decodeFlexibleStringArrayIfPresent(forKey: .interests)
+        vibes = try container.decodeFlexibleStringArrayIfPresent(forKey: .vibes)
+        hangoutsHosted = try container.decodeIfPresent(Int.self, forKey: .hangoutsHosted)
+        hostRating = try container.decodeFlexibleDoubleIfPresent(forKey: .hostRating)
+        reviewsCount = try container.decodeIfPresent(Int.self, forKey: .reviewsCount)
+        followersCount = try container.decodeIfPresent(Int.self, forKey: .followersCount)
+        verifiedProfile = try container.decodeIfPresent(Bool.self, forKey: .verifiedProfile)
+        isPremium = try container.decodeIfPresent(Bool.self, forKey: .isPremium)
+        completionScore = try container.decodeIfPresent(Int.self, forKey: .completionScore)
+        instagramUsername = try container.decodeFlexibleStringIfPresent(forKey: .instagramUsername)
+        linkedinURL = try container.decodeFlexibleStringIfPresent(forKey: .linkedinURL)
+    }
 }
 
-struct SessionProfile: Codable, Equatable {
+struct SessionProfile: Decodable, Equatable {
     let user: SessionProfileUser?
     let avatarImageUrl: String?
     let bio: String?
+    let birthDate: String?
     let cityName: String?
     let cityPlaceId: String?
+    let travelModeEnabled: Bool?
+    let travelCityName: String?
+    let travelCityPlaceId: String?
+    let activeCityName: String?
+    let activeCityPlaceId: String?
+    let nativeLanguage: String?
     let spokenLanguages: [String]?
     let interests: [String]?
     let vibes: [String]?
@@ -97,15 +145,100 @@ struct SessionProfile: Codable, Equatable {
     let interestedIn: [String]?
     let gender: String?
     let instagramUsername: String?
+    let linkedinURL: String?
+    let reviewsCount: Int?
     let followersCount: Int?
     let followingCount: Int?
     let hangoutsAttended: Int?
     let hangoutsHosted: Int?
     let hostRating: Double?
     let completionScore: Int?
+    let completionMissingFields: [String]?
     let onboardingCompleted: Bool
+    let verifiedProfile: Bool?
+    let phoneVerified: Bool?
+    let emailVerified: Bool?
     let isEventCreator: Bool?
     let isVenueOwner: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case user
+        case avatarImageUrl
+        case avatarUrl
+        case bio
+        case birthDate
+        case cityName
+        case cityPlaceId
+        case travelModeEnabled
+        case travelCityName
+        case travelCityPlaceId
+        case activeCityName
+        case activeCityPlaceId
+        case nativeLanguages
+        case spokenLanguages
+        case interests
+        case vibes
+        case availabilitySchedule
+        case preferredGroupSize
+        case interestedIn
+        case gender
+        case instagramUsername
+        case linkedinURL
+        case reviewsCount
+        case followersCount
+        case followingCount
+        case hangoutsAttended
+        case hangoutsHosted
+        case hostRating
+        case completionScore
+        case completionMissingFields
+        case onboardingCompleted
+        case verifiedProfile
+        case phoneVerified
+        case emailVerified
+        case isEventCreator
+        case isVenueOwner
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        user = try container.decodeIfPresent(SessionProfileUser.self, forKey: .user)
+        avatarImageUrl = try container.decodeFlexibleStringIfPresent(forKey: .avatarImageUrl)
+            ?? container.decodeFlexibleStringIfPresent(forKey: .avatarUrl)
+        bio = try container.decodeFlexibleStringIfPresent(forKey: .bio)
+        birthDate = try container.decodeFlexibleStringIfPresent(forKey: .birthDate)
+        cityName = try container.decodeFlexibleStringIfPresent(forKey: .cityName)
+        cityPlaceId = try container.decodeFlexibleStringIfPresent(forKey: .cityPlaceId)
+        travelModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .travelModeEnabled)
+        travelCityName = try container.decodeFlexibleStringIfPresent(forKey: .travelCityName)
+        travelCityPlaceId = try container.decodeFlexibleStringIfPresent(forKey: .travelCityPlaceId)
+        activeCityName = try container.decodeFlexibleStringIfPresent(forKey: .activeCityName)
+        activeCityPlaceId = try container.decodeFlexibleStringIfPresent(forKey: .activeCityPlaceId)
+        nativeLanguage = try container.decodeFlexibleStringIfPresent(forKey: .nativeLanguages)
+        spokenLanguages = try container.decodeFlexibleStringArrayIfPresent(forKey: .spokenLanguages)
+        interests = try container.decodeFlexibleStringArrayIfPresent(forKey: .interests)
+        vibes = try container.decodeFlexibleStringArrayIfPresent(forKey: .vibes)
+        availabilitySchedule = try container.decodeFlexibleAvailabilityArrayIfPresent(forKey: .availabilitySchedule)
+        preferredGroupSize = try container.decodeFlexibleStringIfPresent(forKey: .preferredGroupSize)
+        interestedIn = try container.decodeFlexibleStringArrayIfPresent(forKey: .interestedIn)
+        gender = try container.decodeFlexibleStringIfPresent(forKey: .gender)
+        instagramUsername = try container.decodeFlexibleStringIfPresent(forKey: .instagramUsername)
+        linkedinURL = try container.decodeFlexibleStringIfPresent(forKey: .linkedinURL)
+        reviewsCount = try container.decodeIfPresent(Int.self, forKey: .reviewsCount)
+        followersCount = try container.decodeIfPresent(Int.self, forKey: .followersCount)
+        followingCount = try container.decodeIfPresent(Int.self, forKey: .followingCount)
+        hangoutsAttended = try container.decodeIfPresent(Int.self, forKey: .hangoutsAttended)
+        hangoutsHosted = try container.decodeIfPresent(Int.self, forKey: .hangoutsHosted)
+        hostRating = try container.decodeFlexibleDoubleIfPresent(forKey: .hostRating)
+        completionScore = try container.decodeIfPresent(Int.self, forKey: .completionScore)
+        completionMissingFields = try container.decodeFlexibleStringArrayIfPresent(forKey: .completionMissingFields)
+        onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? false
+        verifiedProfile = try container.decodeIfPresent(Bool.self, forKey: .verifiedProfile)
+        phoneVerified = try container.decodeIfPresent(Bool.self, forKey: .phoneVerified)
+        emailVerified = try container.decodeIfPresent(Bool.self, forKey: .emailVerified)
+        isEventCreator = try container.decodeIfPresent(Bool.self, forKey: .isEventCreator)
+        isVenueOwner = try container.decodeIfPresent(Bool.self, forKey: .isVenueOwner)
+    }
 }
 
 struct OnboardingSubmission {
@@ -130,8 +263,35 @@ struct OnboardingSubmission {
 struct ProfileUpdateSubmission {
     let displayName: String
     let city: String
+    let cityPlaceId: String?
     let bio: String
     let instagramUsername: String
+    let birthDate: Date?
+    let gender: String?
+    let spokenLanguages: [String]
+    let interests: [String]
+
+    init(
+        displayName: String,
+        city: String,
+        cityPlaceId: String? = nil,
+        bio: String,
+        instagramUsername: String,
+        birthDate: Date? = nil,
+        gender: String? = nil,
+        spokenLanguages: [String] = [],
+        interests: [String] = []
+    ) {
+        self.displayName = displayName
+        self.city = city
+        self.cityPlaceId = cityPlaceId
+        self.bio = bio
+        self.instagramUsername = instagramUsername
+        self.birthDate = birthDate
+        self.gender = gender
+        self.spokenLanguages = spokenLanguages
+        self.interests = interests
+    }
 }
 
 struct DiscoveryEventFeedItem: Decodable, Identifiable, Equatable {
@@ -253,6 +413,12 @@ struct CreatorVenueFeedItem: Decodable, Identifiable, Equatable {
     let isVerified: Bool?
 }
 
+struct LocationGuessResponse: Decodable, Equatable {
+    let country: String?
+    let cityName: String
+    let cityPlaceId: String
+}
+
 struct CreatorOfferFeedItem: Decodable, Identifiable, Equatable {
     let id: Int
     let title: String
@@ -289,21 +455,202 @@ struct HangoutFeedItem: Decodable, Identifiable, Equatable {
     let coverImageUrl: String?
     let cityName: String
     let locationName: String?
+    let locationAddress: String?
     let lat: Double?
     let lng: Double?
     let startAt: String
     let endAt: String
     let capacity: Int
+    let isCapacityUnlimited: Bool?
+    let isTimeFlexible: Bool?
     let approvedParticipantsCount: Int?
     let status: String
     let sourceType: String
     let sourceEventId: Int?
     let sourceOfferId: Int?
     let vibe: String
-    let isMicro: Bool
-    let isLive: Bool
+    let languages: [String]
+    let visibility: String?
+    let inviteCode: String?
+    let inviteCodeHint: String?
+    let allowWaitlist: Bool?
+    let genderPreference: String?
+    let audienceTags: [String]
     let participants: [HangoutParticipantFeedItem]
     let joinRequests: [HangoutJoinRequestFeedItem]
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case host
+        case hostUsername
+        case title
+        case description
+        case coverImageUrl
+        case cityName
+        case locationName
+        case locationAddress
+        case lat
+        case lng
+        case startAt
+        case endAt
+        case capacity
+        case isCapacityUnlimited
+        case isTimeFlexible
+        case approvedParticipantsCount
+        case status
+        case sourceType
+        case sourceEventId
+        case sourceOfferId
+        case vibe
+        case languages
+        case visibility
+        case inviteCode
+        case inviteCodeHint
+        case allowWaitlist
+        case genderPreference
+        case audienceTags
+        case participants
+        case joinRequests
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        host = try container.decode(Int.self, forKey: .host)
+        hostUsername = try container.decodeIfPresent(String.self, forKey: .hostUsername) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        coverImageUrl = try container.decodeIfPresent(String.self, forKey: .coverImageUrl)
+        cityName = try container.decodeIfPresent(String.self, forKey: .cityName) ?? ""
+        locationName = try container.decodeIfPresent(String.self, forKey: .locationName)
+        locationAddress = try container.decodeIfPresent(String.self, forKey: .locationAddress)
+        lat = try container.decodeFlexibleDoubleIfPresent(forKey: .lat)
+        lng = try container.decodeFlexibleDoubleIfPresent(forKey: .lng)
+        startAt = try container.decode(String.self, forKey: .startAt)
+        endAt = try container.decodeIfPresent(String.self, forKey: .endAt) ?? startAt
+        capacity = try container.decodeIfPresent(Int.self, forKey: .capacity) ?? 0
+        isCapacityUnlimited = try container.decodeIfPresent(Bool.self, forKey: .isCapacityUnlimited)
+        isTimeFlexible = try container.decodeIfPresent(Bool.self, forKey: .isTimeFlexible)
+        approvedParticipantsCount = try container.decodeIfPresent(Int.self, forKey: .approvedParticipantsCount)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "active"
+        sourceType = try container.decodeIfPresent(String.self, forKey: .sourceType) ?? "community"
+        sourceEventId = try container.decodeIfPresent(Int.self, forKey: .sourceEventId)
+        sourceOfferId = try container.decodeIfPresent(Int.self, forKey: .sourceOfferId)
+        vibe = try container.decodeIfPresent(String.self, forKey: .vibe) ?? "chill"
+        languages = try container.decodeIfPresent([String].self, forKey: .languages) ?? []
+        visibility = try container.decodeIfPresent(String.self, forKey: .visibility)
+        inviteCode = try container.decodeIfPresent(String.self, forKey: .inviteCode)
+        inviteCodeHint = try container.decodeIfPresent(String.self, forKey: .inviteCodeHint)
+        allowWaitlist = try container.decodeIfPresent(Bool.self, forKey: .allowWaitlist)
+        genderPreference = try container.decodeIfPresent(String.self, forKey: .genderPreference)
+        audienceTags = try container.decodeIfPresent([String].self, forKey: .audienceTags) ?? []
+        participants = try container.decodeIfPresent([HangoutParticipantFeedItem].self, forKey: .participants) ?? []
+        joinRequests = try container.decodeIfPresent([HangoutJoinRequestFeedItem].self, forKey: .joinRequests) ?? []
+    }
+}
+
+struct AppSessionAPIArrayEnvelope<T: Decodable>: Decodable {
+    let results: [T]?
+    let data: [T]?
+}
+
+func decodeAppSessionAPIArrayResponse<T: Decodable>(_ type: T.Type, from data: Data, decoder: JSONDecoder) throws -> [T] {
+    if let values = try? decoder.decode([T].self, from: data) {
+        return values
+    }
+
+    let envelope = try decoder.decode(AppSessionAPIArrayEnvelope<T>.self, from: data)
+    if let results = envelope.results {
+        return results
+    }
+    if let values = envelope.data {
+        return values
+    }
+    return []
+}
+
+private extension KeyedDecodingContainer {
+    func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
+        do {
+            if let value = try decodeIfPresent(Double.self, forKey: key) {
+                return value
+            }
+        } catch {
+            // Fall through to string-based decoding.
+        }
+
+        do {
+            if let string = try decodeIfPresent(String.self, forKey: key) {
+                return Double(string)
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
+    func decodeFlexibleStringIfPresent(forKey key: Key) throws -> String? {
+        do {
+            if let value = try decodeIfPresent(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        } catch {
+            // Fall through to numeric decoding.
+        }
+
+        do {
+            if let intValue = try decodeIfPresent(Int.self, forKey: key) {
+                return String(intValue)
+            }
+        } catch {
+            // Fall through to floating-point decoding.
+        }
+
+        do {
+            if let doubleValue = try decodeIfPresent(Double.self, forKey: key) {
+                return String(doubleValue)
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
+    func decodeFlexibleStringArrayIfPresent(forKey key: Key) throws -> [String]? {
+        do {
+            if let values = try decodeIfPresent([String].self, forKey: key) {
+                let cleaned = values
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                return cleaned.isEmpty ? nil : cleaned
+            }
+        } catch {
+            // Fall through to single-value decoding.
+        }
+        if let value = try decodeFlexibleStringIfPresent(forKey: key) {
+            return [value]
+        }
+        return nil
+    }
+
+    func decodeFlexibleAvailabilityArrayIfPresent(forKey key: Key) throws -> [String]? {
+        if let values = try decodeFlexibleStringArrayIfPresent(forKey: key) {
+            return values
+        }
+        do {
+            if let flags = try decodeIfPresent([String: Bool].self, forKey: key) {
+                let active = flags
+                    .filter(\.value)
+                    .map(\.key)
+                    .sorted()
+                return active.isEmpty ? nil : active
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
 }
 
 struct HangoutMessageFeedItem: Decodable, Identifiable, Equatable {
@@ -406,8 +753,6 @@ struct CreateHangoutResponse: Decodable, Equatable {
     let endAt: String
     let capacity: Int
     let approvedParticipantsCount: Int?
-    let isLive: Bool
-    let isMicro: Bool
     let hostUsername: String
 }
 
@@ -423,14 +768,15 @@ private struct CreateHangoutPayload: Encodable {
     let lng: Double?
     let startAt: String?
     let endAt: String?
+    let durationHours: Int?
     let capacity: Int?
     let isCapacityUnlimited: Bool
     let isTimeFlexible: Bool
     let visibility: String
+    let inviteCode: String?
+    let inviteCodeHint: String?
     let allowWaitlist: Bool
     let vibe: String
-    let isMicro: Bool
-    let isLive: Bool
     let genderPreference: String
     let audienceTags: [String]
     let sourceEventId: Int?
@@ -447,14 +793,15 @@ private struct CreateHangoutPayload: Encodable {
         case lng
         case startAt = "start_at"
         case endAt = "end_at"
+        case durationHours = "duration_hours"
         case capacity
         case isCapacityUnlimited = "is_capacity_unlimited"
         case isTimeFlexible = "is_time_flexible"
         case visibility
+        case inviteCode = "invite_code"
+        case inviteCodeHint = "invite_code_hint"
         case allowWaitlist = "allow_waitlist"
         case vibe
-        case isMicro = "is_micro"
-        case isLive = "is_live"
         case genderPreference = "gender_preference"
         case audienceTags = "audience_tags"
         case sourceEventId = "source_event_id"
@@ -466,7 +813,7 @@ private struct CreatorEventCreatePayload: Encodable {
     let description: String
     let venueName: String
     let venueAddress: String
-    let googlePlaceId: String
+    let googlePlaceId: String?
     let city: String
     let cityPlaceId: String
     let lat: Double?
@@ -558,7 +905,7 @@ private struct CreatorOfferUpdatePayload: Encodable {
 private struct CreatorVenueCreatePayload: Encodable {
     let name: String
     let category: String
-    let googlePlaceId: String
+    let googlePlaceId: String?
     let address: String
     let city: String
     let cityPlaceId: String
@@ -654,9 +1001,17 @@ private struct UserPatchRequest: Encodable {
 }
 
 private struct ProfilePatchRequest: Encodable {
-    let cityName: String
-    let bio: String
-    let instagramUsername: String
+    let cityName: String?
+    let cityPlaceId: String?
+    let bio: String?
+    let instagramUsername: String?
+    let birthDate: String?
+    let gender: String?
+    let spokenLanguages: [String]?
+    let interests: [String]?
+    let travelModeEnabled: Bool?
+    let travelCityName: String?
+    let travelCityPlaceId: String?
 }
 
 enum AppSessionError: LocalizedError {
@@ -665,6 +1020,7 @@ enum AppSessionError: LocalizedError {
     case missingRefreshToken
     case httpStatus(Int, String)
     case decodingFailed
+    case invalidInput(String)
 
     var errorDescription: String? {
         switch self {
@@ -678,6 +1034,8 @@ enum AppSessionError: LocalizedError {
             return "Request failed (\(code)): \(message)"
         case .decodingFailed:
             return "Could not decode server response."
+        case let .invalidInput(message):
+            return message
         }
     }
 }
@@ -703,6 +1061,28 @@ final class AppSessionStore: ObservableObject {
     private static let isAuthenticatedKey = "fz.auth.isAuthenticated"
     private static let hasCompletedOnboardingKey = "fz.auth.hasCompletedOnboarding"
 
+    var homeCityName: String? {
+        Self.cleanCityValue(currentProfile?.cityName)
+    }
+
+    var homeCityPlaceId: String? {
+        Self.cleanCityValue(currentProfile?.cityPlaceId)
+    }
+
+    var activeCityName: String? {
+        Self.cleanCityValue(currentProfile?.activeCityName)
+            ?? Self.cleanCityValue(currentProfile?.cityName)
+    }
+
+    var activeCityPlaceId: String? {
+        Self.cleanCityValue(currentProfile?.activeCityPlaceId)
+            ?? Self.cleanCityValue(currentProfile?.cityPlaceId)
+    }
+
+    var isTravelModeActive: Bool {
+        (currentProfile?.travelModeEnabled ?? false) && activeCityPlaceId != homeCityPlaceId
+    }
+
     fileprivate init(
         authAPI: AuthAPIService = AuthAPIService(),
         profileAPI: ProfileAPIService = ProfileAPIService(),
@@ -718,7 +1098,7 @@ final class AppSessionStore: ObservableObject {
         self.tokenStore = tokenStore
         self.defaults = defaults
         self.isAuthenticated = defaults.bool(forKey: Self.isAuthenticatedKey)
-        self.hasCompletedOnboarding = defaults.object(forKey: Self.hasCompletedOnboardingKey) as? Bool ?? true
+        self.hasCompletedOnboarding = defaults.object(forKey: Self.hasCompletedOnboardingKey) as? Bool ?? false
     }
 
     @MainActor
@@ -734,6 +1114,7 @@ final class AppSessionStore: ObservableObject {
         try tokenStore.save(tokens: AuthTokenPair(access: payload.access, refresh: payload.refresh))
         currentUser = payload.user
         isAuthenticated = true
+        hasCompletedOnboarding = payload.user.onboardingCompleted ?? false
         persistState()
         try await refreshProfileState()
     }
@@ -763,6 +1144,7 @@ final class AppSessionStore: ObservableObject {
         try tokenStore.save(tokens: AuthTokenPair(access: payload.access, refresh: payload.refresh))
         currentUser = payload.user
         isAuthenticated = true
+        hasCompletedOnboarding = payload.user.onboardingCompleted ?? false
         persistState()
         try await refreshProfileState()
     }
@@ -776,6 +1158,7 @@ final class AppSessionStore: ObservableObject {
         try tokenStore.save(tokens: AuthTokenPair(access: payload.access, refresh: payload.refresh))
         currentUser = payload.user
         isAuthenticated = true
+        hasCompletedOnboarding = payload.user.onboardingCompleted ?? false
         persistState()
         try await refreshProfileState()
     }
@@ -789,15 +1172,15 @@ final class AppSessionStore: ObservableObject {
         backendReachable = await authAPI.pingBackend()
     }
 
-    func fetchUpcomingEvents() async throws -> [DiscoveryEventFeedItem] {
+    func fetchUpcomingEvents(cityPlaceId: String? = nil) async throws -> [DiscoveryEventFeedItem] {
         try await authorizedCall { [self] accessToken in
-            try await discoverAPI.fetchUpcomingEvents(accessToken: accessToken)
+            try await discoverAPI.fetchUpcomingEvents(cityPlaceId: cityPlaceId, accessToken: accessToken)
         }
     }
 
-    func fetchActiveOffers() async throws -> [DiscoveryOfferFeedItem] {
+    func fetchActiveOffers(cityPlaceId: String? = nil) async throws -> [DiscoveryOfferFeedItem] {
         try await authorizedCall { [self] accessToken in
-            try await discoverAPI.fetchActiveOffers(accessToken: accessToken)
+            try await discoverAPI.fetchActiveOffers(cityPlaceId: cityPlaceId, accessToken: accessToken)
         }
     }
 
@@ -836,6 +1219,11 @@ final class AppSessionStore: ObservableObject {
         description: String,
         venueName: String,
         venueAddress: String,
+        googlePlaceId: String? = nil,
+        city: String? = nil,
+        cityPlaceId: String? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil,
         startAt: Date,
         endAt: Date,
         capacity: Int,
@@ -847,11 +1235,11 @@ final class AppSessionStore: ObservableObject {
             description: description,
             venueName: venueName,
             venueAddress: venueAddress,
-            googlePlaceId: "",
-            city: profile?.cityName ?? "",
-            cityPlaceId: profile?.cityPlaceId ?? "",
-            lat: nil,
-            lng: nil,
+            googlePlaceId: googlePlaceId,
+            city: city ?? activeCityName ?? profile?.cityName ?? "",
+            cityPlaceId: cityPlaceId ?? activeCityPlaceId ?? profile?.cityPlaceId ?? "",
+            lat: lat,
+            lng: lng,
             startAt: iso8601String(from: startAt),
             endAt: iso8601String(from: endAt),
             capacity: capacity,
@@ -897,29 +1285,34 @@ final class AppSessionStore: ObservableObject {
         name: String,
         category: String,
         address: String,
-        city: String
+        city: String,
+        googlePlaceId: String? = nil,
+        cityPlaceId: String? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil
     ) async throws -> CreatorVenueFeedItem {
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
-        let placeSeed = [normalizedName, normalizedAddress, normalizedCity]
-            .joined(separator: "|")
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
 
         let payload = CreatorVenueCreatePayload(
             name: normalizedName,
             category: category,
-            googlePlaceId: "manual-\(placeSeed)-\(UUID().uuidString.prefix(8))",
+            googlePlaceId: googlePlaceId,
             address: normalizedAddress,
             city: normalizedCity,
-            cityPlaceId: currentProfile?.cityPlaceId ?? "",
-            lat: nil,
-            lng: nil
+            cityPlaceId: cityPlaceId ?? activeCityPlaceId ?? currentProfile?.cityPlaceId ?? "",
+            lat: lat,
+            lng: lng
         )
         return try await authorizedCall { [self] accessToken in
             try await discoverAPI.createCreatorVenue(payload: payload, accessToken: accessToken)
+        }
+    }
+
+    func guessLocation(lat: Double, lng: Double, cityName: String? = nil, country: String? = nil) async throws -> LocationGuessResponse {
+        try await authorizedCall { [self] accessToken in
+            try await discoverAPI.guessLocation(lat: lat, lng: lng, cityName: cityName, country: country, accessToken: accessToken)
         }
     }
 
@@ -993,9 +1386,9 @@ final class AppSessionStore: ObservableObject {
         }
     }
 
-    func fetchHangouts() async throws -> [HangoutFeedItem] {
+    func fetchHangouts(cityPlaceId: String? = nil) async throws -> [HangoutFeedItem] {
         try await authorizedCall { [self] accessToken in
-            try await discoverAPI.fetchHangouts(accessToken: accessToken)
+            try await discoverAPI.fetchHangouts(cityPlaceId: cityPlaceId, accessToken: accessToken)
         }
     }
 
@@ -1026,9 +1419,6 @@ final class AppSessionStore: ObservableObject {
     func createHangout(from submission: CreateHangoutSubmission) async throws -> CreateHangoutResponse {
         if submission.sourceType == .offer {
             throw AppSessionError.httpStatus(400, "Offer-sourced hangouts are not exposed by the backend create endpoint yet.")
-        }
-        if submission.visibility == .inviteOnly {
-            throw AppSessionError.httpStatus(400, "Private hangouts are not fully supported by the current backend create serializer yet.")
         }
 
         let payload = makeCreateHangoutPayload(from: submission)
@@ -1164,14 +1554,55 @@ final class AppSessionStore: ObservableObject {
             try await self.profileAPI.updateMyProfile(
                 payload: ProfilePatchRequest(
                     cityName: submission.city,
+                    cityPlaceId: submission.cityPlaceId ?? currentProfile?.cityPlaceId,
                     bio: submission.bio,
-                    instagramUsername: submission.instagramUsername.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+                    instagramUsername: submission.instagramUsername.trimmingCharacters(in: CharacterSet(charactersIn: "@")),
+                    birthDate: submission.birthDate.map(dateOnlyString(from:)),
+                    gender: submission.gender?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? submission.gender : nil,
+                    spokenLanguages: submission.spokenLanguages,
+                    interests: submission.interests,
+                    travelModeEnabled: nil,
+                    travelCityName: nil,
+                    travelCityPlaceId: nil
                 ),
                 accessToken: accessToken
             )
         }
 
         currentUser = updatedUser
+        currentProfile = updatedProfile
+        hasCompletedOnboarding = updatedProfile.onboardingCompleted
+        persistState()
+    }
+
+    @MainActor
+    func updateTravelMode(enabled: Bool, cityName: String? = nil, cityPlaceId: String? = nil) async throws {
+        let normalizedCityName = cityName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCityPlaceId = cityPlaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if enabled && ((normalizedCityName ?? "").isEmpty || (normalizedCityPlaceId ?? "").isEmpty) {
+            throw AppSessionError.invalidInput("Pick a city before enabling Travel Mode.")
+        }
+
+        let updatedProfile = try await authorizedCall { [self] accessToken in
+            try await self.profileAPI.updateMyProfile(
+                payload: ProfilePatchRequest(
+                    cityName: nil,
+                    cityPlaceId: nil,
+                    bio: nil,
+                    instagramUsername: nil,
+                    birthDate: nil,
+                    gender: nil,
+                    spokenLanguages: nil,
+                    interests: nil,
+                    travelModeEnabled: enabled,
+                    travelCityName: enabled ? normalizedCityName : nil,
+                    travelCityPlaceId: enabled ? normalizedCityPlaceId : nil
+                ),
+                accessToken: accessToken
+            )
+        }
+
         currentProfile = updatedProfile
         hasCompletedOnboarding = updatedProfile.onboardingCompleted
         persistState()
@@ -1239,6 +1670,7 @@ final class AppSessionStore: ObservableObject {
             }
             currentUser = user
             isAuthenticated = true
+            hasCompletedOnboarding = user.onboardingCompleted ?? false
             persistState()
             try await refreshProfileState()
         } catch {
@@ -1290,7 +1722,7 @@ final class AppSessionStore: ObservableObject {
         currentUser = nil
         currentProfile = nil
         isAuthenticated = false
-        hasCompletedOnboarding = true
+        hasCompletedOnboarding = false
         if persist {
             persistState()
         }
@@ -1299,6 +1731,11 @@ final class AppSessionStore: ObservableObject {
     private func persistState() {
         defaults.set(isAuthenticated, forKey: Self.isAuthenticatedKey)
         defaults.set(hasCompletedOnboarding, forKey: Self.hasCompletedOnboardingKey)
+    }
+
+    private static func cleanCityValue(_ value: String?) -> String? {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func splitDisplayName(_ fullName: String) -> (firstName: String, lastName: String) {
@@ -1320,20 +1757,34 @@ final class AppSessionStore: ObservableObject {
         return formatter.string(from: date)
     }
 
+    private func dateOnlyString(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
     private func makeCreateHangoutPayload(from submission: CreateHangoutSubmission) -> CreateHangoutPayload {
         let startAt = submission.startAt
-        let endAt = submission.startAt.addingTimeInterval(Double(max(1, submission.durationHours)) * 3600)
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
-        let normalizedLanguages = Array(
-            NSOrderedSet(array: submission.languages.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
-        )
-            .compactMap { $0 as? String }
-            .filter { !$0.isEmpty }
-            .prefix(3)
+        var normalizedLanguages: [String] = []
+        var seenLanguageCodes = Set<String>()
+        for rawLanguage in submission.languages {
+            let normalized = rawLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty, seenLanguageCodes.insert(normalized).inserted else {
+                continue
+            }
+            normalizedLanguages.append(normalized)
+            if normalizedLanguages.count == 3 {
+                break
+            }
+        }
 
         return CreateHangoutPayload(
-            languages: Array(normalizedLanguages),
+            languages: normalizedLanguages,
             title: String(submission.title).trimmingCharacters(in: .whitespacesAndNewlines),
             description: String(submission.description).trimmingCharacters(in: .whitespacesAndNewlines),
             cityPlaceId: String(submission.cityPlaceID).trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1343,30 +1794,25 @@ final class AppSessionStore: ObservableObject {
             lat: submission.latitude,
             lng: submission.longitude,
             startAt: submission.sourceType == .event ? nil : iso.string(from: startAt),
-            endAt: submission.sourceType == .event ? nil : iso.string(from: endAt),
+            endAt: nil,
+            durationHours: submission.sourceType == .event ? nil : submission.durationHours,
             capacity: submission.isCapacityUnlimited ? nil : submission.capacity,
             isCapacityUnlimited: submission.isCapacityUnlimited,
             isTimeFlexible: submission.isTimeFlexible,
             visibility: submission.visibility == .inviteOnly ? "invite_only" : "public",
-            allowWaitlist: true,
-            vibe: backendVibe(for: submission.vibe),
-            isMicro: submission.isMicro,
-            isLive: submission.isLive,
+            inviteCode: normalizedOptionalString(submission.inviteCode),
+            inviteCodeHint: normalizedOptionalString(submission.inviteCodeHint),
+            allowWaitlist: submission.visibility == .inviteOnly ? false : submission.allowWaitlist,
+            vibe: submission.vibe.rawValue,
             genderPreference: backendGenderPreference(for: submission.genderPreference),
             audienceTags: Array(submission.audienceTags).map { String($0) },
             sourceEventId: submission.sourceType == .event ? submission.sourceEventID : nil
         )
     }
 
-    private func backendVibe(for vibe: HangoutVibe) -> String {
-        switch vibe {
-        case .chill: return "chill"
-        case .drinks: return "drinks"
-        case .deepTalk: return "deep talks"
-        case .activity: return "creative"
-        case .foodie: return "food"
-        case .sporty: return "sporty"
-        }
+    private func normalizedOptionalString(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func backendGenderPreference(for value: HangoutGenderPreference) -> String {
@@ -1760,14 +2206,37 @@ private final class DiscoverAPIService {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
 
-    func fetchUpcomingEvents(accessToken: String) async throws -> [DiscoveryEventFeedItem] {
+    func fetchUpcomingEvents(cityPlaceId: String? = nil, accessToken: String) async throws -> [DiscoveryEventFeedItem] {
+        let normalizedCityPlaceId = cityPlaceId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedCityPlaceId.isEmpty {
+            var components = URLComponents(url: AppConfig.url(for: "/api/events/upcoming/"), resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "city_place_id", value: normalizedCityPlaceId)]
+            guard let url = components?.url else {
+                throw AppSessionError.invalidResponse
+            }
+            let data = try await request(url: url, accessToken: accessToken)
+            return try decodeCollectionResponse(DiscoveryEventFeedItem.self, from: data)
+        }
+
         let data = try await request(path: "/api/events/upcoming/", accessToken: accessToken)
-        return try decode([DiscoveryEventFeedItem].self, from: data)
+        return try decodeCollectionResponse(DiscoveryEventFeedItem.self, from: data)
     }
 
-    func fetchHangouts(accessToken: String) async throws -> [HangoutFeedItem] {
+    func fetchHangouts(cityPlaceId: String? = nil, accessToken: String) async throws -> [HangoutFeedItem] {
+        let normalizedCityPlaceId = cityPlaceId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !normalizedCityPlaceId.isEmpty {
+            var components = URLComponents(url: AppConfig.url(for: "/api/hangouts/"), resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "city_place_id", value: normalizedCityPlaceId)]
+            guard let url = components?.url else {
+                throw AppSessionError.invalidResponse
+            }
+            let data = try await request(url: url, accessToken: accessToken)
+            return try decodeHangoutList(from: data)
+        }
+
         let data = try await request(path: "/api/hangouts/", accessToken: accessToken)
-        return try decode([HangoutFeedItem].self, from: data)
+        return try decodeHangoutList(from: data)
     }
 
     func fetchHangoutDetail(id: Int, accessToken: String) async throws -> HangoutFeedItem {
@@ -1775,9 +2244,20 @@ private final class DiscoverAPIService {
         return try decode(HangoutFeedItem.self, from: data)
     }
 
-    func fetchActiveOffers(accessToken: String) async throws -> [DiscoveryOfferFeedItem] {
+    func fetchActiveOffers(cityPlaceId: String? = nil, accessToken: String) async throws -> [DiscoveryOfferFeedItem] {
+        let normalizedCityPlaceId = cityPlaceId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedCityPlaceId.isEmpty {
+            var components = URLComponents(url: AppConfig.url(for: "/api/offers/"), resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "city_place_id", value: normalizedCityPlaceId)]
+            guard let url = components?.url else {
+                throw AppSessionError.invalidResponse
+            }
+            let data = try await request(url: url, accessToken: accessToken)
+            return try decodeCollectionResponse(DiscoveryOfferFeedItem.self, from: data)
+        }
+
         let data = try await request(path: "/api/offers/", accessToken: accessToken)
-        return try decode([DiscoveryOfferFeedItem].self, from: data)
+        return try decodeCollectionResponse(DiscoveryOfferFeedItem.self, from: data)
     }
 
     func fetchEventDetail(id: Int, accessToken: String) async throws -> EventDetailFeedItem {
@@ -1792,17 +2272,39 @@ private final class DiscoverAPIService {
 
     func fetchMyCreatorEvents(accessToken: String) async throws -> [CreatorEventFeedItem] {
         let data = try await request(path: "/api/events/mine/", accessToken: accessToken)
-        return try decode([CreatorEventFeedItem].self, from: data)
+        return try decodeCollectionResponse(CreatorEventFeedItem.self, from: data)
     }
 
     func fetchMyCreatorVenues(accessToken: String) async throws -> [CreatorVenueFeedItem] {
         let data = try await request(path: "/api/venues/mine/", accessToken: accessToken)
-        return try decode([CreatorVenueFeedItem].self, from: data)
+        return try decodeCollectionResponse(CreatorVenueFeedItem.self, from: data)
     }
 
     func fetchMyCreatorOffers(accessToken: String) async throws -> [CreatorOfferFeedItem] {
         let data = try await request(path: "/api/offers/mine/", accessToken: accessToken)
-        return try decode([CreatorOfferFeedItem].self, from: data)
+        return try decodeCollectionResponse(CreatorOfferFeedItem.self, from: data)
+    }
+
+    func guessLocation(lat: Double, lng: Double, cityName: String? = nil, country: String? = nil, accessToken: String) async throws -> LocationGuessResponse {
+        var components = URLComponents(url: AppConfig.url(for: "/api/locations/location/guess/"), resolvingAgainstBaseURL: false)
+        var queryItems = [
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng))
+        ]
+        let normalizedCityName = cityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedCityName.isEmpty {
+            queryItems.append(URLQueryItem(name: "city_name", value: normalizedCityName))
+        }
+        let normalizedCountry = country?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedCountry.isEmpty {
+            queryItems.append(URLQueryItem(name: "country", value: normalizedCountry))
+        }
+        components?.queryItems = queryItems
+        guard let url = components?.url else {
+            throw AppSessionError.invalidResponse
+        }
+        let data = try await request(url: url, accessToken: accessToken)
+        return try decode(LocationGuessResponse.self, from: data)
     }
 
     func createCreatorEvent(payload: CreatorEventCreatePayload, accessToken: String) async throws -> CreatorEventFeedItem {
@@ -1857,7 +2359,7 @@ private final class DiscoverAPIService {
 
     func fetchMySoloJoins(accessToken: String) async throws -> [EventSoloJoinFeedItem] {
         let data = try await request(path: "/api/events/solo-joins/me/", accessToken: accessToken)
-        return try decode([EventSoloJoinFeedItem].self, from: data)
+        return try decodeCollectionResponse(EventSoloJoinFeedItem.self, from: data)
     }
 
     func requestJoinHangout(id: Int, message: String, accessToken: String) async throws -> HangoutJoinRequestFeedItem {
@@ -1892,7 +2394,7 @@ private final class DiscoverAPIService {
 
     func fetchHangoutMessages(hangoutID: Int, accessToken: String) async throws -> [HangoutMessageFeedItem] {
         let data = try await request(path: "/api/hangouts/\(hangoutID)/messages/", accessToken: accessToken)
-        return try decode([HangoutMessageFeedItem].self, from: data)
+        return try decodeCollectionResponse(HangoutMessageFeedItem.self, from: data)
     }
 
     func sendHangoutMessage(hangoutID: Int, message: String, accessToken: String) async throws -> HangoutMessageFeedItem {
@@ -1941,7 +2443,11 @@ private final class DiscoverAPIService {
     }
 
     private func request(path: String, method: String = "GET", body: Data? = nil, accessToken: String) async throws -> Data {
-        var request = URLRequest(url: AppConfig.url(for: path))
+        try await request(url: AppConfig.url(for: path), method: method, body: body, accessToken: accessToken)
+    }
+
+    private func request(url: URL, method: String = "GET", body: Data? = nil, accessToken: String) async throws -> Data {
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -1974,6 +2480,18 @@ private final class DiscoverAPIService {
         }
     }
 
+    private func decodeHangoutList(from data: Data) throws -> [HangoutFeedItem] {
+        do {
+            return try decodeCollectionResponse(HangoutFeedItem.self, from: data)
+        } catch {
+            throw AppSessionError.decodingFailed
+        }
+    }
+
+    private func decodeCollectionResponse<T: Decodable>(_ type: T.Type, from data: Data) throws -> [T] {
+        try decodeAppSessionAPIArrayResponse(T.self, from: data, decoder: decoder)
+    }
+
     private func decodeCreateHangoutResponse(from data: Data) throws -> CreateHangoutResponse {
         if let response = try? decoder.decode(CreateHangoutResponse.self, from: data) {
             return response
@@ -1991,8 +2509,6 @@ private final class DiscoverAPIService {
                 endAt: hangout.endAt,
                 capacity: hangout.capacity,
                 approvedParticipantsCount: hangout.approvedParticipantsCount,
-                isLive: hangout.isLive,
-                isMicro: hangout.isMicro,
                 hostUsername: hangout.hostUsername
             )
         }
@@ -2103,7 +2619,7 @@ private final class NotificationsAPIService {
     func fetchNotifications(unreadOnly: Bool, accessToken: String) async throws -> [AppNotificationFeedItem] {
         let suffix = unreadOnly ? "?unread_only=true" : ""
         let data = try await request(path: "/api/notifications/\(suffix)", accessToken: accessToken)
-        return try decode([AppNotificationFeedItem].self, from: data)
+        return try decodeAppSessionAPIArrayResponse(AppNotificationFeedItem.self, from: data, decoder: decoder)
     }
 
     func markNotificationRead(id: Int, accessToken: String) async throws -> AppNotificationFeedItem {

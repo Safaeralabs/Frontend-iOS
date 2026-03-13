@@ -9,112 +9,51 @@ private struct HangoutRoute: Identifiable {
 }
 
 struct AmbitionsView: View {
+    @EnvironmentObject private var session: AppSessionStore
     @StateObject private var viewModel = AmbitionsViewModel()
+
     @State private var presentedHangoutRoute: HangoutRoute?
+    @State private var selectedSignal: AmbitionQuickSignal = .freeTonight
+    @State private var selectedInterest: AmbitionInterestPreset = .coffee
+    @State private var selectedVibe: AmbitionQuickVibe = .chill
+    @State private var selectedRadiusKm = 10
 
-    @State private var selectedInterest = "Coffee & Vibes"
-    @State private var selectedVibe = "Chill"
-    @State private var preferredTime = Self.roundedHour()
-    @State private var desiredGroupSize = 4
-    @State private var ambitionNote = ""
-
-    private let interestOptions = [
-        "Coffee & Vibes",
-        "Sunset Walk",
-        "Live Music",
-        "Rooftop Drinks",
-        "Art Crawl"
-    ]
-
-    private let vibeOptions = [
-        "Chill",
-        "Spontaneous",
-        "Focused",
-        "Low-key"
-    ]
-
-    private let storySteps: [FlowStep] = [
-        .init(
-            id: 0,
-            icon: "bolt.fill",
-            title: "Share the energy",
-            detail: "Tell FriendZone when, where, and the tone you want.",
-            accent: FriendZoneTheme.Colors.primary
-        ),
-        .init(
-            id: 1,
-            icon: "person.3.sequence.fill",
-            title: "We fine tune",
-            detail: "Matching people who are free for that exact block.",
-            accent: FriendZoneTheme.Colors.primaryAccent
-        ),
-        .init(
-            id: 2,
-            icon: "sparkles",
-            title: "Hangout appears",
-            detail: "As soon as everyone agrees, the hangout card pops in.",
-            accent: FriendZoneTheme.Colors.primarySoft
-        )
-    ]
-
-    private let sampleMatches: [SampleFlowItem] = [
-        .init(
-            id: 1,
-            title: "Daylight Coffee",
-            subtitle: "Coffee & Vibes · Today · 6:15 PM",
-            badge: "Waiting on you",
-            participants: "2 people matched",
-            accentColor: FriendZoneTheme.Colors.primary
-        ),
-        .init(
-            id: 2,
-            title: "Museo Stroll",
-            subtitle: "Live Music · Today · 8:00 PM",
-            badge: "3 people accepted",
-            participants: "You are tagged in this one",
-            accentColor: FriendZoneTheme.Colors.primaryAccent
-        )
-    ]
-
-    private let sampleHangouts: [SampleFlowItem] = [
-        .init(
-            id: 3,
-            title: "Golden Hour Walk",
-            subtitle: "Sunset Walk · 7:30 PM · Retiro",
-            badge: "Hangout ready",
-            participants: "3 joined",
-            accentColor: FriendZoneTheme.Colors.primary
-        ),
-        .init(
-            id: 4,
-            title: "Rooftop Drops",
-            subtitle: "Rooftop Drinks · 9:00 PM",
-            badge: "Adding one more",
-            participants: "2 confirmed, 1 waiting",
-            accentColor: FriendZoneTheme.Colors.primaryAccent
-        )
-    ]
+    private let radiusOptions = [3, 5, 10, 20]
 
     var body: some View {
         ZStack(alignment: .top) {
             backgroundGradient
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.lg) {
+                VStack(alignment: .leading, spacing: 14) {
                     heroHeader
 
-                    if let error = viewModel.errorMessage {
-                        errorBanner(error)
+                    if let successMessage = viewModel.successMessage {
+                        feedbackBanner(
+                            icon: "checkmark.circle.fill",
+                            message: successMessage,
+                            tint: FriendZoneTheme.Colors.success,
+                            background: FriendZoneTheme.Colors.success.opacity(0.12)
+                        )
                     }
 
-                    ambitionForm
-                    flowTracker
-                    matchesSection
-                    hangoutsSection
+                    if let errorMessage = viewModel.errorMessage {
+                        feedbackBanner(
+                            icon: "exclamationmark.triangle.fill",
+                            message: errorMessage,
+                            tint: FriendZoneTheme.Colors.warning,
+                            background: FriendZoneTheme.Colors.warning.opacity(0.12)
+                        )
+                    }
+
+                    intentComposer
+                    liveSignalsSection
+                    formingMatchesSection
+                    unlockedHangoutsSection
                 }
-                .padding(.horizontal, FriendZoneTheme.Spacing.md)
-                .padding(.top, FriendZoneTheme.Spacing.md)
-                .padding(.bottom, FriendZoneTheme.Spacing.xl)
+                .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+                .padding(.top, FriendZoneTheme.Chrome.topOffset)
+                .padding(.bottom, 32)
             }
         }
         .overlay(loadingOverlay)
@@ -129,20 +68,15 @@ struct AmbitionsView: View {
                 await viewModel.pollForHangoutUpdates()
             }
         }
+        .onChange(of: viewModel.pendingOpenHangoutID) { hangoutID in
+            guard let hangoutID else { return }
+            openHangout(id: hangoutID)
+            viewModel.clearPendingHangoutOpen()
+        }
         .sheet(item: $presentedHangoutRoute) { route in
             WebScreen(path: route.path)
         }
         .ignoresSafeArea(.container, edges: [.bottom])
-    }
-
-    private static func roundedHour() -> Date {
-        let calendar = Calendar.current
-        let nextHour = calendar.nextDate(
-            after: Date(),
-            matching: DateComponents(minute: 0),
-            matchingPolicy: .nextTime
-        )
-        return nextHour ?? Date()
     }
 
     private var backgroundGradient: some View {
@@ -159,180 +93,651 @@ struct AmbitionsView: View {
 
     private var heroHeader: some View {
         FriendZoneModuleHeader(
-            leadingText: "Set the",
-            highlightText: "energy",
-            subtitle: "Tell FriendZone what you are up for and we handle the matching.",
-            horizontalPadding: 20
+            leadingText: "Signal your ",
+            highlightText: "next move",
+            subtitle: "Start from intent. If the right people say yes, FriendZone turns it into a hangout.",
+            horizontalPadding: FriendZoneTheme.Chrome.horizontalInset
         ) {
-            HStack(spacing: 12) {
-                Button {
-                    Task {
-                        await viewModel.refresh()
-                    }
-                } label: {
-                    Image(systemName: viewModel.isLoading ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.clockwise")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.primary)
-                        .frame(width: 34, height: 34)
+            HStack(spacing: 10) {
+                if viewModel.isCreating || viewModel.isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(FriendZoneTheme.Colors.primary)
+                        .frame(width: 32, height: 32)
                         .background(FriendZoneTheme.Colors.surface)
                         .clipShape(Circle())
+                } else {
+                    Button {
+                        viewModel.clearSuccessMessage()
+                        Task { await viewModel.refresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(FriendZoneTheme.Colors.primary)
+                            .frame(width: 32, height: 32)
+                            .background(FriendZoneTheme.Colors.surface)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isLoading)
 
                 FriendZoneLogoMark(size: 32, cornerRadius: 12)
             }
         }
-        .padding(.top, 8)
     }
 
-    private var ambitionForm: some View {
-        VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.sm) {
-            Text("Your next move")
-                .font(FriendZoneTheme.Typography.displaySerif(FriendZoneTheme.Typography.sizeLG, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+    private var intentComposer: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("INTENT")
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                        .tracking(0.8)
 
-            TextField(
-                "Describe what you are craving right now",
-                text: $ambitionNote
-            )
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM))
-            .padding(12)
-            .background(FriendZoneTheme.Colors.surface)
-            .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
+                    Text("What are you up for?")
+                        .font(FriendZoneTheme.Typography.system(20, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                }
 
-            Text("Pick a vibe")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                Spacer(minLength: 0)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: FriendZoneTheme.Spacing.sm) {
-                    ForEach(interestOptions, id: \.self) { option in
-                        interestChip(title: option, isActive: option == selectedInterest) {
-                            selectedInterest = option
-                            ambitionNote = option
+                cityModePill
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionEyebrow("Signal")
+
+                HStack(spacing: 8) {
+                    ForEach(AmbitionQuickSignal.allCases) { signal in
+                        AmbitionSelectionChip(
+                            title: signal.title,
+                            subtitle: signal.shortCaption,
+                            emoji: signal.emoji,
+                            isSelected: signal == selectedSignal
+                        ) {
+                            selectedSignal = signal
                         }
                     }
                 }
             }
 
-            HStack(spacing: FriendZoneTheme.Spacing.sm) {
-                ForEach(vibeOptions, id: \.self) { vibe in
-                    vibeChip(title: vibe, isActive: vibe == selectedVibe) {
-                        selectedVibe = vibe
+            VStack(alignment: .leading, spacing: 8) {
+                sectionEyebrow("Intent")
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8)
+                    ],
+                    spacing: 8
+                ) {
+                    ForEach(AmbitionInterestPreset.allCases) { interest in
+                        AmbitionInterestTile(
+                            interest: interest,
+                            isSelected: interest == selectedInterest
+                        ) {
+                            selectedInterest = interest
+                        }
                     }
                 }
             }
 
-            HStack {
-                Image(systemName: "clock.fill")
-                    .foregroundColor(FriendZoneTheme.Colors.primary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("When")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                    Text(formatTime(preferredTime))
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            VStack(alignment: .leading, spacing: 8) {
+                sectionEyebrow("Vibe")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(AmbitionQuickVibe.allCases) { vibe in
+                            AmbitionVibePill(
+                                vibe: vibe,
+                                isSelected: vibe == selectedVibe
+                            ) {
+                                selectedVibe = vibe
+                            }
+                        }
+                    }
+                    .padding(.vertical, 1)
                 }
-
-                Spacer()
-
-                DatePicker(
-                    "",
-                    selection: $preferredTime,
-                    displayedComponents: [.hourAndMinute]
-                )
-                .labelsHidden()
             }
 
-            Stepper(
-                "Group size · \(desiredGroupSize) people",
-                value: $desiredGroupSize,
-                in: 2...8
-            )
-            .tint(FriendZoneTheme.Colors.primary)
+            HStack(spacing: 10) {
+                locationSummaryCard
+
+                radiusSummaryCard
+            }
+
+            if activeCityPlaceId == nil {
+                Text("Set your city first to start matching.")
+                    .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
+                    .foregroundColor(FriendZoneTheme.Colors.warning)
+            }
 
             Button {
-                Task {
-                    await viewModel.refresh()
-                }
+                startMatching()
             } label: {
-                Text("Broadcast ambition")
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                    .background(
-                        LinearGradient(
-                            colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+                HStack(spacing: 8) {
+                    if viewModel.isCreating {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+
+                    Text(viewModel.isCreating ? "Matching..." : "Start matching")
+                        .font(FriendZoneTheme.Typography.system(15, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(
+                    LinearGradient(
+                        colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(.plain)
-            .padding(.top, FriendZoneTheme.Spacing.sm)
+            .disabled(viewModel.isCreating || activeCityPlaceId == nil)
+            .opacity(viewModel.isCreating || activeCityPlaceId == nil ? 0.55 : 1)
         }
-        .padding(FriendZoneTheme.Spacing.md)
+        .padding(16)
         .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.xl, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
         .friendZoneShadow(FriendZoneTheme.Shadows.sm)
     }
 
-    private var flowTracker: some View {
-        VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.sm) {
+    private var cityModePill: some View {
+        HStack(spacing: 6) {
+            Image(systemName: session.isTravelModeActive ? "airplane" : "house.fill")
+                .font(.system(size: 10, weight: .bold))
+
+            Text(session.isTravelModeActive ? "TRAVEL" : "HOME")
+                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+        }
+        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(FriendZoneTheme.Colors.surfaceMuted)
+        .clipShape(Capsule())
+    }
+
+    private var locationSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(session.isTravelModeActive ? "Travel city" : "Current city")
+                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            Text(activeCityName ?? "Missing city")
+                .font(FriendZoneTheme.Typography.system(13, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                .lineLimit(1)
+            Text(selectedSignal.windowLabel)
+                .font(FriendZoneTheme.Typography.system(10.5, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(FriendZoneTheme.Colors.surfaceElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var radiusSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Radius")
+                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
+            HStack(spacing: 6) {
+                ForEach(radiusOptions, id: \.self) { radius in
+                    Text("\(radius)km")
+                        .font(FriendZoneTheme.Typography.system(10.5, weight: .bold))
+                        .foregroundColor(radius == selectedRadiusKm ? .white : FriendZoneTheme.Colors.textSecondary)
+                        .padding(.horizontal, 9)
+                        .frame(height: 28)
+                        .background(radius == selectedRadiusKm ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.surfaceMuted)
+                        .clipShape(Capsule())
+                        .onTapGesture {
+                            selectedRadiusKm = radius
+                        }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(FriendZoneTheme.Colors.surfaceElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var liveSignalsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
-                title: "Flow preview",
-                subtitle: "A simple timeline showing what happens after you tap broadcast."
+                title: "Live signals",
+                subtitle: "Intentions that are still waiting for overlap."
             )
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: FriendZoneTheme.Spacing.sm) {
-                    ForEach(storySteps) { FlowStepView(step: $0) }
+            if viewModel.ambitions.isEmpty {
+                emptyStateCard(
+                    title: "No live signal yet",
+                    message: "Once you start matching, your active intent appears here."
+                )
+            } else {
+                ForEach(viewModel.ambitions) { ambition in
+                    liveSignalCard(ambition)
                 }
             }
         }
     }
 
-    private var matchesSection: some View {
-        VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.sm) {
+    private var formingMatchesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
-                title: "Matches waiting for you",
-                subtitle: "Confirm people you want to hang out with."
+                title: "Matches forming",
+                subtitle: "People who overlap with this exact plan energy."
             )
 
-            VStack(spacing: FriendZoneTheme.Spacing.sm) {
-                if viewModel.formingMatches.isEmpty {
-                    ForEach(sampleMatches) { sampleMatchCard($0) }
-                } else {
-                    ForEach(viewModel.formingMatches) { matchCard($0) }
+            if viewModel.formingMatches.isEmpty {
+                emptyStateCard(
+                    title: "No crew forming yet",
+                    message: "Signals that line up in time, city and vibe will show up here."
+                )
+            } else {
+                ForEach(viewModel.formingMatches) { match in
+                    formingMatchCard(match)
                 }
             }
         }
     }
 
-    private var hangoutsSection: some View {
-        VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.sm) {
+    private var unlockedHangoutsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
-                title: "Hangouts in motion",
-                subtitle: "When everyone says yes, a hangout card appears."
+                title: "Hangouts unlocked",
+                subtitle: "When enough people accept, the plan becomes a hangout."
             )
 
-            VStack(spacing: FriendZoneTheme.Spacing.sm) {
-                if viewModel.hangoutMatches.isEmpty {
-                    ForEach(sampleHangouts) { sampleHangoutCard($0) }
-                } else {
-                    ForEach(viewModel.hangoutMatches) { hangoutCard($0) }
+            if viewModel.hangoutMatches.isEmpty {
+                emptyStateCard(
+                    title: "Nothing unlocked yet",
+                    message: "Accepted matches move here as soon as a hangout is created."
+                )
+            } else {
+                ForEach(viewModel.hangoutMatches) { match in
+                    unlockedHangoutCard(match)
                 }
+            }
+        }
+    }
+
+    private func sectionHeader(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(20, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(subtitle)
+                .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+    }
+
+    private func sectionEyebrow(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            .tracking(0.8)
+    }
+
+    private func feedbackBanner(icon: String, message: String, tint: Color, background: Color) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(tint)
+
+            Text(message)
+                .font(FriendZoneTheme.Typography.system(11.5, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func emptyStateCard(title: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(14, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(message)
+                .font(FriendZoneTheme.Typography.system(11.5, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                .lineSpacing(1.5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private func liveSignalCard(_ ambition: Ambition) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(interestDisplayTitle(for: ambition.primaryInterest))
+                        .font(FriendZoneTheme.Typography.system(16, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text(signalWindowLabel(for: ambition.startAt, endAt: ambition.endAt))
+                        .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+
+                smallBadge(timeUntilLabel(for: ambition.startAt))
+            }
+
+            HStack(spacing: 8) {
+                compactMetaPill((ambition.cityName ?? activeCityName ?? "City").uppercased())
+                compactMetaPill(vibeDisplayTitle(for: ambition.vibe).uppercased())
+                compactMetaPill((ambition.status ?? "active").uppercased())
+            }
+        }
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private func formingMatchCard(_ match: AmbitionMatch) -> some View {
+        let actionInFlight = viewModel.activeMatchActions[match.id]
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(interestDisplayTitle(for: match.primaryInterest))
+                        .font(FriendZoneTheme.Typography.system(17, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text(matchTimingLine(match))
+                        .font(FriendZoneTheme.Typography.system(11.5, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+
+                smallBadge(matchQualityLabel(match.matchQualityScore))
+            }
+
+            if !(match.otherMembers ?? []).isEmpty {
+                memberStrip(match)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(unlockLine(match))
+                        .font(FriendZoneTheme.Typography.system(11.5, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Spacer(minLength: 0)
+
+                    Text("\(match.acceptedCount ?? 0)/\(match.minSize ?? 2)")
+                        .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                }
+
+                GeometryReader { proxy in
+                    let progress = min(
+                        1,
+                        CGFloat(match.acceptedCount ?? 0) / CGFloat(max(match.minSize ?? 2, 1))
+                    )
+
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(FriendZoneTheme.Colors.surfaceMuted)
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(26, proxy.size.width * progress))
+                    }
+                }
+                .frame(height: 8)
+            }
+
+            matchActionArea(for: match, actionInFlight: actionInFlight)
+        }
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private func memberStrip(_ match: AmbitionMatch) -> some View {
+        let members = Array((match.otherMembers ?? []).prefix(4))
+
+        return HStack(spacing: 8) {
+            ForEach(members) { member in
+                HStack(spacing: 7) {
+                    ZStack {
+                        Circle()
+                            .fill(FriendZoneTheme.Colors.primarySoft)
+                            .frame(width: 28, height: 28)
+
+                        Text(initials(for: member.user.username))
+                            .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                            .foregroundColor(FriendZoneTheme.Colors.primary)
+                    }
+
+                    Text(member.user.username)
+                        .font(FriendZoneTheme.Typography.system(10.5, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 36)
+                .background(FriendZoneTheme.Colors.surfaceElevated)
+                .clipShape(Capsule())
             }
         }
     }
 
     @ViewBuilder
+    private func matchActionArea(for match: AmbitionMatch, actionInFlight: AmbitionMatchAction?) -> some View {
+        if let hangoutID = match.hangout {
+            Button {
+                openHangout(id: hangoutID)
+            } label: {
+                Text("Open hangout")
+                    .font(FriendZoneTheme.Typography.system(14, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(FriendZoneTheme.Colors.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        } else {
+            switch (match.userStatus ?? "suggested").lowercased() {
+            case "suggested":
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            await viewModel.respondToMatch(matchID: match.id, action: .decline)
+                        }
+                    } label: {
+                        Group {
+                            if actionInFlight == .decline {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .tint(FriendZoneTheme.Colors.textSecondary)
+                            } else {
+                                Text("Pass")
+                            }
+                        }
+                        .font(FriendZoneTheme.Typography.system(13.5, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(FriendZoneTheme.Colors.surfaceMuted)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(actionInFlight != nil)
+
+                    Button {
+                        Task {
+                            await viewModel.respondToMatch(matchID: match.id, action: .accept)
+                        }
+                    } label: {
+                        Group {
+                            if actionInFlight == .accept {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .tint(.white)
+                            } else {
+                                Text("I'm in")
+                            }
+                        }
+                        .font(FriendZoneTheme.Typography.system(13.5, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(FriendZoneTheme.Colors.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(actionInFlight != nil)
+                }
+            case "accepted":
+                statusStrip("You are in. Waiting on the others.", tint: FriendZoneTheme.Colors.primary)
+            case "declined":
+                statusStrip("You passed on this one.", tint: FriendZoneTheme.Colors.textTertiary)
+            default:
+                statusStrip("Match is updating.", tint: FriendZoneTheme.Colors.textSecondary)
+            }
+        }
+    }
+
+    private func unlockedHangoutCard(_ match: AmbitionMatch) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(interestDisplayTitle(for: match.primaryInterest))
+                        .font(FriendZoneTheme.Typography.system(17, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                    Text(matchTimingLine(match))
+                        .font(FriendZoneTheme.Typography.system(11.5, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+
+                smallBadge("UNLOCKED")
+            }
+
+            HStack(spacing: 8) {
+                compactMetaPill((match.cityName ?? activeCityName ?? "City").uppercased())
+                compactMetaPill("\(match.hangoutParticipantCount ?? match.acceptedCount ?? 0) IN")
+                compactMetaPill(match.hangoutIsFull == true ? "FULL" : "OPEN")
+            }
+
+            if let hangoutID = match.hangout {
+                Button {
+                    openHangout(id: hangoutID)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "ticket.fill")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Open hangout")
+                            .font(FriendZoneTheme.Typography.system(14, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(
+                        LinearGradient(
+                            colors: [FriendZoneTheme.Colors.primary, FriendZoneTheme.Colors.primaryAccent],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.primary.opacity(0.22), lineWidth: 1)
+        }
+    }
+
+    private func smallBadge(_ text: String) -> some View {
+        Text(text)
+            .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(FriendZoneTheme.Colors.primarySoft)
+            .clipShape(Capsule())
+    }
+
+    private func compactMetaPill(_ text: String) -> some View {
+        Text(text)
+            .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(FriendZoneTheme.Colors.surfaceMuted)
+            .clipShape(Capsule())
+    }
+
+    private func statusStrip(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(FriendZoneTheme.Typography.system(11.5, weight: .bold))
+            .foregroundColor(tint)
+            .frame(maxWidth: .infinity)
+            .frame(height: 42)
+            .background(tint.opacity(0.11))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
     private var loadingOverlay: some View {
-        if viewModel.isLoading {
+        if viewModel.isLoading && viewModel.ambitions.isEmpty && viewModel.matches.isEmpty {
             Color.black.opacity(0.02)
                 .ignoresSafeArea()
                 .overlay {
@@ -340,345 +745,116 @@ struct AmbitionsView: View {
                         .progressViewStyle(.circular)
                         .padding(16)
                         .background(FriendZoneTheme.Colors.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .friendZoneShadow(FriendZoneTheme.Shadows.md)
                 }
         }
     }
 
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: FriendZoneTheme.Spacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.warning)
-
-            Text(message)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .medium))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, FriendZoneTheme.Spacing.md)
-        .padding(.vertical, FriendZoneTheme.Spacing.sm)
-        .background(FriendZoneTheme.Colors.surfaceMuted)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(FriendZoneTheme.Colors.borderSubtle)
-                .frame(height: FriendZoneTheme.BorderWidth.thin)
-        }
+    private var activeCityName: String? {
+        session.activeCityName
     }
 
-    private func sectionHeader(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+    private var activeCityPlaceId: String? {
+        session.activeCityPlaceId
+    }
 
-            Text(subtitle)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+    private func startMatching() {
+        guard let cityPlaceId = activeCityPlaceId, let cityName = activeCityName else {
+            viewModel.errorMessage = "Set a city first to create an ambition."
+            return
+        }
+
+        let payload = QuickAmbitionPayload(
+            primaryInterest: selectedInterest.primaryInterest,
+            signalType: selectedSignal.rawValue,
+            vibe: selectedVibe.rawValue,
+            cityPlaceId: cityPlaceId,
+            cityName: cityName,
+            interests: selectedInterest.relatedInterests,
+            lat: nil,
+            lng: nil,
+            radiusKm: selectedRadiusKm
+        )
+
+        Task {
+            await viewModel.createQuickAmbition(payload)
         }
     }
 
-    private func interestChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Text(title)
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-            .foregroundColor(isActive ? FriendZoneTheme.Colors.textInverse : FriendZoneTheme.Colors.textSecondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(isActive ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.surfaceMuted)
-            .clipShape(Capsule())
-            .onTapGesture { action() }
+    private func matchTimingLine(_ match: AmbitionMatch) -> String {
+        let city = match.cityName ?? activeCityName ?? "your city"
+        return "\(signalWindowLabel(for: match.startAt, endAt: match.endAt)) · \(city)"
     }
 
-    private func vibeChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Text(title)
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-            .foregroundColor(isActive ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous)
-                    .stroke(isActive ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.borderSubtle, lineWidth: FriendZoneTheme.BorderWidth.thin)
-            )
-            .onTapGesture { action() }
-    }
+    private func signalWindowLabel(for start: String?, endAt end: String?) -> String {
+        guard let startDate = ISODateParser.parse(start) else { return "Timing to be confirmed" }
+        let startFormatter = DateFormatter()
+        startFormatter.locale = .autoupdatingCurrent
+        startFormatter.dateFormat = "EEE h:mm a"
 
-    private func matchCard(_ match: AmbitionMatch) -> some View {
-        VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.sm) {
-            Text(match.primaryInterest ?? "Match")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-            Text(matchSummary(match))
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .regular))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-
-            HStack(spacing: FriendZoneTheme.Spacing.sm) {
-                if let cityName = match.cityName, !cityName.isEmpty {
-                    capsule(cityName)
-                }
-                if let status = match.userStatus, !status.isEmpty {
-                    capsule(status.capitalized)
-                }
-                if let start = match.startAt {
-                    capsule(shortDate(start))
-                }
-            }
-
-            matchActionArea(for: match)
+        guard let endDate = ISODateParser.parse(end) else {
+            return startFormatter.string(from: startDate)
         }
-        .padding(FriendZoneTheme.Spacing.md)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: FriendZoneTheme.BorderWidth.thin)
+
+        let durationHours = max(1, Int(round(endDate.timeIntervalSince(startDate) / 3600)))
+        return "\(startFormatter.string(from: startDate)) · \(durationHours)h block"
+    }
+
+    private func timeUntilLabel(for start: String?) -> String {
+        guard let startDate = ISODateParser.parse(start) else { return "SOON" }
+        let now = Date()
+        if startDate <= now {
+            return "NOW"
         }
-    }
 
-    private func sampleMatchCard(_ sample: SampleFlowItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(sample.title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-            Text(sample.subtitle)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .regular))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-
-            Text(sample.participants)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                .foregroundColor(sample.accentColor)
-
-            badgeLabel(sample.badge, color: sample.accentColor)
+        let interval = Int(startDate.timeIntervalSince(now))
+        if interval < 3600 {
+            return "IN \(max(1, interval / 60))M"
         }
-        .padding(FriendZoneTheme.Spacing.md)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: FriendZoneTheme.BorderWidth.thin)
+        if interval < 86_400 {
+            return "IN \(interval / 3600)H"
         }
+        return "NEXT"
     }
 
-    private func hangoutCard(_ match: AmbitionMatch) -> some View {
-        VStack(alignment: .leading, spacing: FriendZoneTheme.Spacing.sm) {
-            Text(match.primaryInterest ?? "Hangout")
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+    private func unlockLine(_ match: AmbitionMatch) -> String {
+        let accepted = match.acceptedCount ?? 0
+        let minimum = max(match.minSize ?? 2, 2)
+        let remaining = max(minimum - accepted, 0)
 
-            HStack(spacing: FriendZoneTheme.Spacing.sm) {
-                if let cityName = match.cityName, !cityName.isEmpty {
-                    capsule(cityName)
-                }
-                if let start = match.startAt {
-                    capsule(shortDate(start))
-                }
-                if let end = match.endAt {
-                    capsule(shortDate(end))
-                }
-            }
-
-            if let hangoutID = match.hangout {
-                Button {
-                    openHangout(id: hangoutID)
-                } label: {
-                    Text("Open hangout")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(FriendZoneTheme.Colors.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
+        if remaining == 0 {
+            return "Enough people are in. Converting now."
         }
-        .padding(FriendZoneTheme.Spacing.md)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: FriendZoneTheme.BorderWidth.thin)
+        if remaining == 1 {
+            return "One more yes unlocks the hangout."
         }
+        return "\(remaining) more yeses unlock the hangout."
     }
 
-    private func sampleHangoutCard(_ sample: SampleFlowItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(sample.title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeBase, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+    private func matchQualityLabel(_ score: Double?) -> String {
+        guard let score else { return "MATCH" }
+        return "\(Int((score * 100).rounded()))% FIT"
+    }
 
-            Text(sample.subtitle)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .regular))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+    private func interestDisplayTitle(for rawValue: String?) -> String {
+        AmbitionInterestPreset.displayTitle(for: rawValue)
+    }
 
-            Text(sample.participants)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                .foregroundColor(sample.accentColor)
+    private func vibeDisplayTitle(for rawValue: String?) -> String {
+        AmbitionQuickVibe.displayTitle(for: rawValue)
+    }
 
-            badgeLabel(sample.badge, color: sample.accentColor)
+    private func initials(for username: String) -> String {
+        let pieces = username
+            .split(whereSeparator: { $0 == "_" || $0 == "." || $0 == " " })
+            .map(String.init)
+
+        if pieces.count >= 2 {
+            return pieces.prefix(2).compactMap(\.first).map { String($0).uppercased() }.joined()
         }
-        .padding(FriendZoneTheme.Spacing.md)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: FriendZoneTheme.BorderWidth.thin)
-        }
-    }
 
-    @ViewBuilder
-    private func matchActionArea(for match: AmbitionMatch) -> some View {
-        let actionInFlight = viewModel.activeMatchActions[match.id]
-
-        if let hangoutID = match.hangout {
-            Button {
-                openHangout(id: hangoutID)
-            } label: {
-                Text("Open hangout")
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(FriendZoneTheme.Colors.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-            }
-            .buttonStyle(.plain)
-        } else {
-            switch (match.userStatus ?? "suggested").lowercased() {
-            case "suggested":
-                if match.hangoutIsFull == true {
-                    statusBanner(
-                        text: "Full",
-                        foreground: FriendZoneTheme.Colors.warning,
-                        background: FriendZoneTheme.Colors.warning.opacity(0.12)
-                    )
-                } else {
-                    HStack(spacing: FriendZoneTheme.Spacing.sm) {
-                        Button {
-                            Task {
-                                await viewModel.respondToMatch(matchID: match.id, action: .decline)
-                            }
-                        } label: {
-                            if actionInFlight == .decline {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(FriendZoneTheme.Colors.textSecondary)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                            } else {
-                                Text("Pass")
-                                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .background(Color.black.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-                        .disabled(actionInFlight != nil)
-
-                        Button {
-                            Task {
-                                await viewModel.respondToMatch(matchID: match.id, action: .accept)
-                            }
-                        } label: {
-                            if actionInFlight == .accept {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(FriendZoneTheme.Colors.textInverse)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                            } else {
-                                Text("Join solo")
-                                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                                    .foregroundColor(FriendZoneTheme.Colors.textInverse)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .background(FriendZoneTheme.Colors.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-                        .disabled(actionInFlight != nil)
-                    }
-                }
-            case "accepted":
-                statusBanner(
-                    text: "You are in. Waiting on others...",
-                    foreground: FriendZoneTheme.Colors.primary,
-                    background: FriendZoneTheme.Colors.primarySoft
-                )
-            case "declined":
-                statusBanner(
-                    text: "You passed on this one",
-                    foreground: FriendZoneTheme.Colors.textTertiary,
-                    background: Color.black.opacity(0.03)
-                )
-            default:
-                EmptyView()
-            }
-        }
-    }
-
-    private func statusBanner(text: String, foreground: Color, background: Color) -> some View {
-        Text(text)
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-            .foregroundColor(foreground)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, FriendZoneTheme.Spacing.sm)
-            .frame(height: 44)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.md, style: .continuous))
-    }
-
-    private func badgeLabel(_ text: String, color: Color) -> some View {
-        Text(text.uppercased())
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.size2XS, weight: .bold))
-            .foregroundColor(color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(color.opacity(0.12))
-            .clipShape(Capsule())
-    }
-
-    private func capsule(_ text: String) -> some View {
-        Text(text)
-            .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            .padding(.horizontal, FriendZoneTheme.Spacing.sm)
-            .padding(.vertical, 6)
-            .background(FriendZoneTheme.Colors.surfaceMuted)
-            .clipShape(Capsule())
-    }
-
-    private func shortDate(_ isoString: String) -> String {
-        guard let date = ISODateParser.parse(isoString) else { return isoString }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "MMM d, h:mm a"
-        return formatter.string(from: date)
-    }
-
-    private func matchSummary(_ match: AmbitionMatch) -> String {
-        let usernames = (match.otherMembers ?? []).map { $0.user.username }
-        if usernames.isEmpty {
-            return "Waiting for participants"
-        }
-        return usernames.prefix(3).joined(separator: ", ")
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "EEEE, h:mm a"
-        return formatter.string(from: date)
+        return String(username.prefix(2)).uppercased()
     }
 
     private func openHangout(id: Int) {
@@ -686,50 +862,233 @@ struct AmbitionsView: View {
     }
 }
 
-private struct FlowStepView: View {
-    let step: FlowStep
+private enum AmbitionQuickSignal: String, CaseIterable, Identifiable {
+    case freeTonight = "free_tonight"
+    case afterwork = "afterwork"
+    case weekendPlan = "weekend_plan"
+    case cravingFood = "craving_food"
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: step.icon)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(step.accent)
-                .padding(12)
-                .background(step.accent.opacity(0.14))
-                .clipShape(Circle())
+    var id: String { rawValue }
 
-            Text(step.title)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-            Text(step.detail)
-                .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS))
-                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+    var title: String {
+        switch self {
+        case .freeTonight: return "Tonight"
+        case .afterwork: return "Afterwork"
+        case .weekendPlan: return "Weekend"
+        case .cravingFood: return "Food run"
         }
-        .padding(FriendZoneTheme.Spacing.md)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.lg, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: FriendZoneTheme.BorderWidth.thin)
+    }
+
+    var shortCaption: String {
+        switch self {
+        case .freeTonight: return "Now"
+        case .afterwork: return "Later"
+        case .weekendPlan: return "Ahead"
+        case .cravingFood: return "Fast"
         }
-        .friendZoneShadow(FriendZoneTheme.Shadows.sm)
+    }
+
+    var emoji: String {
+        switch self {
+        case .freeTonight: return "🌙"
+        case .afterwork: return "🥂"
+        case .weekendPlan: return "🎈"
+        case .cravingFood: return "🍜"
+        }
+    }
+
+    var windowLabel: String {
+        switch self {
+        case .freeTonight: return "Tonight window"
+        case .afterwork: return "Afterwork slot"
+        case .weekendPlan: return "Weekend block"
+        case .cravingFood: return "Soon"
+        }
     }
 }
 
-private struct FlowStep: Identifiable {
-    let id: Int
-    let icon: String
-    let title: String
-    let detail: String
-    let accent: Color
+private enum AmbitionInterestPreset: String, CaseIterable, Identifiable {
+    case coffee
+    case drinks
+    case food
+    case walk
+    case music
+    case deepTalk = "deep_talk"
+
+    var id: String { rawValue }
+
+    var primaryInterest: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .coffee: return "Coffee"
+        case .drinks: return "Drinks"
+        case .food: return "Food"
+        case .walk: return "Walk"
+        case .music: return "Music"
+        case .deepTalk: return "Deep talk"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .coffee: return "☕"
+        case .drinks: return "🍸"
+        case .food: return "🍽️"
+        case .walk: return "🚶"
+        case .music: return "🎶"
+        case .deepTalk: return "🧠"
+        }
+    }
+
+    var relatedInterests: [String] {
+        switch self {
+        case .coffee:
+            return ["coffee", "casual"]
+        case .drinks:
+            return ["drinks", "nightlife"]
+        case .food:
+            return ["food", "dinner"]
+        case .walk:
+            return ["walks", "outdoors"]
+        case .music:
+            return ["music", "culture"]
+        case .deepTalk:
+            return ["deep_talk", "conversation"]
+        }
+    }
+
+    static func displayTitle(for rawValue: String?) -> String {
+        guard let rawValue else { return "Signal" }
+        return Self.allCases.first(where: { $0.rawValue == rawValue })?.title
+            ?? rawValue
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+    }
 }
 
-private struct SampleFlowItem: Identifiable {
-    let id: Int
+private enum AmbitionQuickVibe: String, CaseIterable, Identifiable {
+    case chill
+    case drinks
+    case activity
+    case deepTalk = "deep_talk"
+    case food
+    case cultural
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chill: return "Chill"
+        case .drinks: return "Social"
+        case .activity: return "Active"
+        case .deepTalk: return "Deep"
+        case .food: return "Foodie"
+        case .cultural: return "Culture"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .chill: return "🫖"
+        case .drinks: return "✨"
+        case .activity: return "⚡"
+        case .deepTalk: return "🧠"
+        case .food: return "🍝"
+        case .cultural: return "🎭"
+        }
+    }
+
+    static func displayTitle(for rawValue: String?) -> String {
+        guard let rawValue else { return "Vibe" }
+        return Self.allCases.first(where: { $0.rawValue == rawValue })?.title
+            ?? rawValue
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+    }
+}
+
+private struct AmbitionSelectionChip: View {
     let title: String
     let subtitle: String
-    let badge: String
-    let participants: String
-    let accentColor: Color
+    let emoji: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(emoji)
+                    .font(.system(size: 18))
+
+                Text(title)
+                    .font(FriendZoneTheme.Typography.system(11.5, weight: .bold))
+
+                Text(subtitle.uppercased())
+                    .font(FriendZoneTheme.Typography.system(9, weight: .bold))
+                    .opacity(0.72)
+            }
+            .foregroundColor(isSelected ? .white : FriendZoneTheme.Colors.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 76)
+            .background(isSelected ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AmbitionInterestTile: View {
+    let interest: AmbitionInterestPreset
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Text(interest.emoji)
+                    .font(.system(size: 17))
+
+                Text(interest.title)
+                    .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(isSelected ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.textPrimary)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
+            .background(FriendZoneTheme.Colors.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AmbitionVibePill: View {
+    let vibe: AmbitionQuickVibe
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text(vibe.emoji)
+                    .font(.system(size: 14))
+
+                Text(vibe.title)
+                    .font(FriendZoneTheme.Typography.system(11.5, weight: .bold))
+            }
+            .foregroundColor(isSelected ? .white : FriendZoneTheme.Colors.textSecondary)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(isSelected ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.surfaceElevated)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
 }

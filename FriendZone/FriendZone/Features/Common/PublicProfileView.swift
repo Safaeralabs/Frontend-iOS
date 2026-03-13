@@ -12,6 +12,14 @@ struct PublicProfileData: Identifiable, Equatable {
     var avatarURL: String?
     var followersCount: Int?
     var hostRating: Double?
+    var hangoutsHosted: Int?
+    var reviewsCount: Int?
+    var interests: [String]
+    var vibes: [String]
+    var age: Int?
+    var gender: String?
+    var verifiedProfile: Bool
+    var isPremium: Bool
     var isFollowing: Bool
 
     init(
@@ -26,6 +34,14 @@ struct PublicProfileData: Identifiable, Equatable {
         avatarURL: String? = nil,
         followersCount: Int? = nil,
         hostRating: Double? = nil,
+        hangoutsHosted: Int? = nil,
+        reviewsCount: Int? = nil,
+        interests: [String] = [],
+        vibes: [String] = [],
+        age: Int? = nil,
+        gender: String? = nil,
+        verifiedProfile: Bool = false,
+        isPremium: Bool = false,
         isFollowing: Bool = false
     ) {
         self.id = id
@@ -39,6 +55,14 @@ struct PublicProfileData: Identifiable, Equatable {
         self.avatarURL = avatarURL
         self.followersCount = followersCount
         self.hostRating = hostRating
+        self.hangoutsHosted = hangoutsHosted
+        self.reviewsCount = reviewsCount
+        self.interests = interests
+        self.vibes = vibes
+        self.age = age
+        self.gender = gender
+        self.verifiedProfile = verifiedProfile
+        self.isPremium = isPremium
         self.isFollowing = isFollowing
     }
 
@@ -75,7 +99,15 @@ struct PublicProfileData: Identifiable, Equatable {
             city: publicProfile.cityName ?? "",
             avatarURL: publicProfile.avatarURL,
             followersCount: publicProfile.followersCount,
-            hostRating: publicProfile.hostRating
+            hostRating: publicProfile.hostRating,
+            hangoutsHosted: publicProfile.hangoutsHosted,
+            reviewsCount: publicProfile.reviewsCount,
+            interests: publicProfile.interests ?? [],
+            vibes: publicProfile.vibes ?? [],
+            age: publicProfile.age,
+            gender: publicProfile.gender,
+            verifiedProfile: publicProfile.verifiedProfile ?? false,
+            isPremium: publicProfile.isPremium ?? false
         )
     }
 
@@ -138,10 +170,13 @@ struct CreatorProfileDraft: Identifiable, Equatable {
 
 struct PublicProfileView: View {
     @EnvironmentObject private var session: AppSessionStore
+    @Environment(\.dismiss) private var dismiss
+
     @State private var profile: PublicProfileData
     @State private var isLoadingRemoteProfile = false
     @State private var isTogglingFollow = false
     @State private var loadErrorMessage: String?
+
     let leadingText: String
     let highlightText: String
     let subtitle: String?
@@ -183,16 +218,25 @@ struct PublicProfileView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                if hasProfileSignals {
+                    profileSignalsSection
+                        .padding(.horizontal, 16)
+                }
+
                 profileBioSection
                     .padding(.horizontal, 16)
 
-                profileLinks
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 32)
+                if hasProfileLinks {
+                    profileLinks
+                        .padding(.horizontal, 16)
+                }
+
+                Spacer(minLength: 0)
+                    .frame(height: 32)
             }
         }
         .background(FriendZoneTheme.Colors.background)
-        .navigationTitle("\(highlightText.capitalized)")
+        .navigationTitle(highlightText.capitalized)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await hydrateRemoteProfileIfNeeded()
@@ -200,7 +244,7 @@ struct PublicProfileView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
-                    onClose?()
+                    close()
                 }
                 .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
             }
@@ -208,74 +252,79 @@ struct PublicProfileView: View {
     }
 
     private var publicProfileCard: some View {
-        VStack(spacing: 12) {
-            ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [Color(hex: "#0F172A"), Color(hex: "#0E7490")],
+                            colors: [Color(hex: "#0F172A"), Color(hex: "#0E7490"), Color(hex: "#2563EB")],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(height: 120)
+                    .frame(height: 148)
 
-                Circle()
-                    .fill(Color.white.opacity(0.3))
-                    .frame(width: 56, height: 56)
-                    .overlay { avatarContent }
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 16)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Circle()
+                            .fill(Color.white.opacity(0.22))
+                            .frame(width: 70, height: 70)
+                            .overlay { avatarContent }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(profile.displayName)
+                                .font(FriendZoneTheme.Typography.system(24, weight: .bold))
+                                .foregroundColor(.white)
+
+                            if let username = profile.username, !username.isEmpty {
+                                Text("@\(username)")
+                                    .font(FriendZoneTheme.Typography.system(12, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.72))
+                            }
+
+                            Text(profileMetaSummary)
+                                .font(FriendZoneTheme.Typography.system(12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.86))
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    HStack(spacing: 8) {
+                        if !profile.city.isEmpty {
+                            inverseProfileChip(icon: "📍", label: profile.city)
+                        }
+                        if profile.verifiedProfile {
+                            inverseProfileChip(icon: "✅", label: "Verified")
+                        }
+                        if profile.isPremium {
+                            inverseProfileChip(icon: "✨", label: "Premium")
+                        }
+                    }
+                }
+                .padding(18)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(profile.displayName)
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeLG, weight: .bold))
-                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            if hasStats {
+                profileStatsGrid
+            }
 
-                Text(profile.city)
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-
-                if let username = profile.username, !username.isEmpty {
-                    Text("@\(username)")
-                        .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeXS, weight: .semibold))
-                        .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-                }
-
-                Text(profile.bio)
-                    .font(FriendZoneTheme.Typography.system(FriendZoneTheme.Typography.sizeSM, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    profileChip(icon: "📍", label: profile.city)
-                    if let followersCount = profile.followersCount {
-                        profileChip(icon: "👥", label: "\(followersCount) followers")
+            if canToggleFollow {
+                Button {
+                    Task {
+                        await toggleFollow()
                     }
-                    if let hostRating = profile.hostRating {
-                        profileChip(icon: "⭐", label: String(format: "%.1f host", hostRating))
-                    }
+                } label: {
+                    Text(isTogglingFollow ? "Updating..." : (profile.isFollowing ? "Following" : "Follow"))
+                        .font(FriendZoneTheme.Typography.system(13, weight: .bold))
+                        .foregroundColor(profile.isFollowing ? FriendZoneTheme.Colors.textPrimary : .white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(profile.isFollowing ? Color.black.opacity(0.05) : FriendZoneTheme.Colors.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-
-                if canToggleFollow {
-                    Button {
-                        Task {
-                            await toggleFollow()
-                        }
-                    } label: {
-                        Text(isTogglingFollow ? "Updating..." : (profile.isFollowing ? "Following" : "Follow"))
-                            .font(FriendZoneTheme.Typography.system(13, weight: .bold))
-                            .foregroundColor(profile.isFollowing ? FriendZoneTheme.Colors.textPrimary : .white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 40)
-                            .background(profile.isFollowing ? Color.black.opacity(0.05) : FriendZoneTheme.Colors.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isTogglingFollow)
-                    .padding(.top, 6)
-                }
+                .buttonStyle(.plain)
+                .disabled(isTogglingFollow)
             }
         }
         .padding(16)
@@ -283,6 +332,172 @@ struct PublicProfileView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
+        }
+    }
+
+    private var profileMetaSummary: String {
+        var parts: [String] = []
+        if let age = profile.age {
+            parts.append("\(age)")
+        }
+        if let gender = profile.gender?.trimmingCharacters(in: .whitespacesAndNewlines), !gender.isEmpty {
+            parts.append(gender.capitalized)
+        }
+        return parts.isEmpty ? "FriendZone member" : parts.joined(separator: " · ")
+    }
+
+    private var hasStats: Bool {
+        profile.followersCount != nil ||
+        profile.hangoutsHosted != nil ||
+        profile.reviewsCount != nil ||
+        profile.hostRating != nil
+    }
+
+    private var profileStatsGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
+            if let followersCount = profile.followersCount {
+                profileStatCard(label: "Followers", value: "\(followersCount)")
+            }
+            if let hangoutsHosted = profile.hangoutsHosted {
+                profileStatCard(label: "Hosted", value: "\(hangoutsHosted)")
+            }
+            if let reviewsCount = profile.reviewsCount {
+                profileStatCard(label: "Reviews", value: "\(reviewsCount)")
+            }
+            if let hostRating = profile.hostRating {
+                profileStatCard(label: "Host rating", value: String(format: "%.1f", hostRating))
+            }
+        }
+    }
+
+    private func profileStatCard(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(FriendZoneTheme.Typography.system(17, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(label.uppercased())
+                .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .frame(height: 58)
+        .background(FriendZoneTheme.Colors.surfaceMuted)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var hasProfileSignals: Bool {
+        !profile.vibes.isEmpty || !profile.interests.isEmpty
+    }
+
+    private var profileSignalsSection: some View {
+        VStack(spacing: 12) {
+            if !profile.vibes.isEmpty {
+                profileTagSection(
+                    title: "Vibes",
+                    subtitle: "Usually brings this energy.",
+                    tags: profile.vibes,
+                    icon: "✨"
+                )
+            }
+
+            if !profile.interests.isEmpty {
+                profileTagSection(
+                    title: "Interests",
+                    subtitle: "Things they usually lean into.",
+                    tags: profile.interests,
+                    icon: "🎯"
+                )
+            }
+        }
+    }
+
+    private func profileTagSection(title: String, subtitle: String, tags: [String], icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+                Text(subtitle)
+                    .font(FriendZoneTheme.Typography.system(11, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                ForEach(tags, id: \.self) { tag in
+                    HStack(spacing: 6) {
+                        Text(icon)
+                        Text(tag)
+                            .font(FriendZoneTheme.Typography.system(12, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                    .padding(.horizontal, 11)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .background(FriendZoneTheme.Colors.surfaceMuted)
+                    .clipShape(Capsule())
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
+        }
+    }
+
+    private var profileBioSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("About")
+                .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
+            Text(profile.bio.isEmpty ? "No bio shared yet." : profile.bio)
+                .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
+        }
+    }
+
+    private var hasProfileLinks: Bool {
+        !profile.instagram.isEmpty || !profile.website.isEmpty
+    }
+
+    private var profileLinks: some View {
+        VStack(spacing: 10) {
+            if !profile.instagram.isEmpty {
+                profileLinkRow(icon: "at", title: "Instagram", value: "@\(profile.instagram)")
+            }
+            if let url = URL(string: profile.website), !profile.website.isEmpty {
+                let isLinkedIn = profile.website.lowercased().contains("linkedin")
+                profileLinkRow(
+                    icon: isLinkedIn ? "briefcase" : "link",
+                    title: isLinkedIn ? "LinkedIn" : "Website",
+                    value: profile.website,
+                    url: url
+                )
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(16)
+        .background(FriendZoneTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
         }
     }
@@ -299,6 +514,7 @@ struct PublicProfileView: View {
         guard let userID = profile.userID else { return }
         isLoadingRemoteProfile = true
         defer { isLoadingRemoteProfile = false }
+
         do {
             let publicProfile = try await session.fetchPublicProfile(userID: userID)
             profile = PublicProfileData(publicProfile: publicProfile)
@@ -313,6 +529,7 @@ struct PublicProfileView: View {
         guard let userID = profile.userID else { return }
         isTogglingFollow = true
         defer { isTogglingFollow = false }
+
         do {
             let isFollowing = try await session.toggleFollow(userID: userID)
             profile.isFollowing = isFollowing
@@ -334,65 +551,27 @@ struct PublicProfileView: View {
                     .scaledToFill()
             } placeholder: {
                 Text(profile.initial)
-                    .font(FriendZoneTheme.Typography.system(20, weight: .bold))
+                    .font(FriendZoneTheme.Typography.system(24, weight: .bold))
                     .foregroundColor(.white)
             }
             .clipShape(Circle())
         } else {
             Text(profile.initial)
-                .font(FriendZoneTheme.Typography.system(20, weight: .bold))
+                .font(FriendZoneTheme.Typography.system(24, weight: .bold))
                 .foregroundColor(.white)
         }
     }
 
-    private var profileBioSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Bio")
-                .font(FriendZoneTheme.Typography.system(12, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
-            Text(profile.bio)
-                .font(FriendZoneTheme.Typography.system(14, weight: .medium))
-                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
-        }
-    }
-
-    private var profileLinks: some View {
-        VStack(spacing: 10) {
-            if !profile.instagram.isEmpty {
-                profileLinkRow(icon: "at", title: "Instagram", value: "@\(profile.instagram)")
-            }
-            if let url = URL(string: profile.website), !profile.website.isEmpty {
-                profileLinkRow(icon: "link", title: "Website", value: profile.website, url: url)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(16)
-        .background(FriendZoneTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1.2)
-        }
-    }
-
-    private func profileChip(icon: String, label: String) -> some View {
+    private func inverseProfileChip(icon: String, label: String) -> some View {
         HStack(spacing: 4) {
             Text(icon)
             Text(label)
-                .font(FriendZoneTheme.Typography.system(12, weight: .semibold))
+                .font(FriendZoneTheme.Typography.system(11, weight: .semibold))
         }
-        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-        .padding(.horizontal, 12)
+        .foregroundColor(.white)
+        .padding(.horizontal, 10)
         .frame(height: 28)
-        .background(FriendZoneTheme.Colors.surfaceMuted)
+        .background(Color.white.opacity(0.14))
         .clipShape(Capsule())
     }
 
@@ -409,6 +588,7 @@ struct PublicProfileView: View {
                 Text(title.uppercased())
                     .font(FriendZoneTheme.Typography.system(10, weight: .bold))
                     .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+
                 if let url = url {
                     Link(value, destination: url)
                         .font(FriendZoneTheme.Typography.system(14, weight: .semibold))
@@ -419,7 +599,16 @@ struct PublicProfileView: View {
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                 }
             }
+
             Spacer()
+        }
+    }
+
+    private func close() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
         }
     }
 }

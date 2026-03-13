@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import MapKit
 import UIKit
@@ -5,6 +6,7 @@ import UIKit
 struct RootTabView: View {
     @EnvironmentObject private var session: AppSessionStore
     @State private var selectedTab: AppTab = .hangouts
+    @StateObject private var mapLocation = FriendZoneMapLocationModel()
     @State private var mapRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 52.52, longitude: 13.405),
         span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
@@ -28,19 +30,22 @@ struct RootTabView: View {
     @State private var pendingMapHangoutSourceOfferID: Int?
     @State private var shouldRefreshMapHangoutsAfterCreate = false
     @State private var isShowingMapReportAcknowledgement = false
+    @State private var isPresentingTravelMode = false
     @State private var isShowingMapBlurLift = false
     @State private var mapTransitionToken = 0
     @State private var lastTabForTransition: AppTab = .hangouts
     @State private var hasRestoredMapViewport = false
     @State private var openingMapDetailHangoutID: Int?
     @State private var openingMapDetailSelectionID: String?
+    @State private var shouldCenterOnNextPreciseLocation = false
+    @State private var isCenteredOnPreciseLocation = false
 
-    @AppStorage("fz.maps.center.lat") private var storedMapCenterLat: Double = 52.52
-    @AppStorage("fz.maps.center.lon") private var storedMapCenterLon: Double = 13.405
+    @AppStorage("fz.maps.center.lat") private var storedMapCenterLat: Double = 0
+    @AppStorage("fz.maps.center.lon") private var storedMapCenterLon: Double = 0
     @AppStorage("fz.maps.span.latDelta") private var storedMapSpanLatDelta: Double = 0.08
     @AppStorage("fz.maps.span.lonDelta") private var storedMapSpanLonDelta: Double = 0.08
 
-    private let userCoordinate = CLLocationCoordinate2D(latitude: 52.5176, longitude: 13.4095)
+    @State private var userCoordinate = CLLocationCoordinate2D(latitude: 52.5176, longitude: 13.4095)
 
     var body: some View {
         GeometryReader { proxy in
@@ -147,12 +152,12 @@ struct RootTabView: View {
             .fullScreenCover(isPresented: $isPresentingMapCreate) {
                 CreateHangoutView(
                     onCancel: { isPresentingMapCreate = false },
-                    onCreate: { submission in
-                        try await createMapHangout(submission)
+                    onCreated: { _ in
+                        shouldRefreshMapHangoutsAfterCreate = true
                     },
                     initialDraft: CreateHangoutDraft(
-                        cityName: session.currentProfile?.cityName ?? "",
-                        cityPlaceID: session.currentProfile?.cityPlaceId ?? "",
+                        cityName: session.activeCityName ?? "",
+                        cityPlaceID: session.activeCityPlaceId ?? "",
                         sourceType: pendingMapHangoutSource,
                         sourceLabel: pendingMapHangoutSourceLabel,
                         sourceEventID: pendingMapHangoutSourceEventID,
@@ -181,13 +186,17 @@ struct RootTabView: View {
                 }
                 .background(FriendZoneTheme.Colors.background.ignoresSafeArea())
             }
+            .sheet(isPresented: $isPresentingTravelMode) {
+                TravelModeSheet()
+                    .environmentObject(session)
+            }
             .alert("Report sent", isPresented: $isShowingMapReportAcknowledgement) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Thanks. We will review this hangout.")
             }
             .onChange(of: selectedTab) { current in
-                if lastTabForTransition == .hangouts, current == .maps {
+                if current == .maps, lastTabForTransition != .maps {
                     triggerMapBlurLift()
                 }
                 lastTabForTransition = current
@@ -195,19 +204,20 @@ struct RootTabView: View {
             .onAppear {
                 guard !hasRestoredMapViewport else { return }
                 hasRestoredMapViewport = true
-                let restoredLat = min(90, max(-90, storedMapCenterLat))
-                let restoredLon = min(180, max(-180, storedMapCenterLon))
-                mapRegion = MKCoordinateRegion(
-                    center: CLLocationCoordinate2D(
-                        latitude: restoredLat,
-                        longitude: restoredLon
-                    ),
-                    span: MKCoordinateSpan(
-                        latitudeDelta: min(80, max(0.002, storedMapSpanLatDelta)),
-                        longitudeDelta: min(80, max(0.002, storedMapSpanLonDelta))
-                    )
-                )
+                centerMapOnRegisteredHome()
                 Task { await loadMapDiscoveryData() }
+            }
+            .onChange(of: session.currentProfile?.activeCityPlaceId) { _ in
+                centerMapOnRegisteredHome()
+                Task { await loadMapDiscoveryData() }
+            }
+            .onReceive(mapLocation.$coordinate) { coordinate in
+                guard let coordinate else { return }
+                userCoordinate = coordinate
+                guard shouldCenterOnNextPreciseLocation else { return }
+                shouldCenterOnNextPreciseLocation = false
+                isCenteredOnPreciseLocation = true
+                focusMap(on: coordinate, span: preciseUserMapSpan)
             }
             .onChange(of: mapRegion.center.latitude) { _ in
                 persistMapViewport()
@@ -230,7 +240,7 @@ struct RootTabView: View {
             let showingMaps = selectedTab == .maps
 
             ZStack {
-                PersistentDiscoveryMapView(
+                FriendZoneMapCanvasView(
                     region: $mapRegion,
                     hangouts: mapHangouts,
                     hangoutCoordinates: mapHangoutCoordinates,
@@ -280,20 +290,32 @@ struct RootTabView: View {
                     .toolbar(.hidden, for: .navigationBar)
                     .frame(width: pageWidth)
 
-                    MapsOverlayView(
-                        hangouts: mapHangouts,
+                    FriendZoneMapChromeView(
                         selectedItem: selectedMapItem,
                         openingDetailHangoutID: openingMapDetailHangoutID,
                         openingDetailSelectionID: openingMapDetailSelectionID,
                         isActive: showingMaps,
+                        cityLabel: mapCityLabel,
+                        isTravelModeActive: session.isTravelModeActive,
+                        plansCount: mapHangouts.count + mapEvents.count + mapOffers.count,
+                        isLocatingUser: mapLocation.isLocating,
+                        isUsingPreciseLocation: isCenteredOnPreciseLocation,
+                        onOpenTravelMode: {
+                            isPresentingTravelMode = true
+                        },
                         onCloseSelection: {
                             selectedMapSelectionID = nil
                             openingMapDetailHangoutID = nil
                             openingMapDetailSelectionID = nil
                         },
                         onLocateMe: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                mapRegion.center = userCoordinate
+                            if let preciseCoordinate = mapLocation.coordinate {
+                                userCoordinate = preciseCoordinate
+                                isCenteredOnPreciseLocation = true
+                                focusMap(on: preciseCoordinate, span: preciseUserMapSpan)
+                            } else {
+                                shouldCenterOnNextPreciseLocation = true
+                                mapLocation.requestLocation()
                             }
                         },
                         onOpenHangoutDetail: { hangout in
@@ -450,8 +472,11 @@ struct RootTabView: View {
     @MainActor
     private func loadMapHangouts() async {
         do {
-            let items = try await session.fetchHangouts()
-            let currentUserID = session.currentUser?.id
+            let items = try await session.fetchHangouts(
+                cityPlaceId: session.activeCityPlaceId
+            )
+            let now = Date()
+            let currentUserID = session.currentUser?.id ?? session.currentProfile?.user?.id
             let mapped = items.compactMap { item -> HangoutItem? in
                 guard
                     let startAt = parseServerDate(item.startAt),
@@ -461,7 +486,7 @@ struct RootTabView: View {
                 }
 
                 let participantNames = item.participants
-                    .filter { $0.status.lowercased() == "approved" }
+                    .filter { $0.status.lowercased() == "approved" && $0.user != item.host }
                     .map(\.username)
                 let isJoined = item.participants.contains {
                     $0.user == currentUserID && $0.status.lowercased() == "approved"
@@ -475,30 +500,53 @@ struct RootTabView: View {
                     vibe: mapVibe(item.vibe),
                     cityName: item.cityName,
                     locationName: item.locationName,
+                    locationAddress: item.locationAddress,
+                    latitude: item.lat,
+                    longitude: item.lng,
+                    hostUserID: item.host,
                     hostName: item.host == currentUserID ? "you" : item.hostUsername,
                     startAt: startAt,
                     endAt: endAt,
                     capacity: item.capacity,
-                    approvedCount: item.approvedParticipantsCount ?? participantNames.count,
-                    isLive: item.isLive,
-                    isMicro: item.isMicro,
+                    isCapacityUnlimited: item.isCapacityUnlimited,
+                    approvedCount: item.approvedParticipantsCount ?? max(1, participantNames.count + 1),
                     isJoined: isJoined || item.host == currentUserID,
                     participantNames: participantNames,
                     coverImageData: nil,
+                    coverImageURL: item.coverImageUrl,
                     coverSeed: item.id,
                     distanceKm: 1.2,
-                    priceTier: .free
+                    priceTier: .free,
+                    visibility: item.visibility.flatMap(HangoutVisibilityOption.init(backendRawValue:)),
+                    inviteCode: item.inviteCode,
+                    inviteCodeHint: item.inviteCodeHint,
+                    allowWaitlist: item.allowWaitlist,
+                    genderPreference: item.genderPreference.flatMap(HangoutGenderPreference.init(backendRawValue:)),
+                    audienceTags: item.audienceTags,
+                    languages: item.languages,
+                    isTimeFlexible: item.isTimeFlexible,
+                    sourceEventID: item.sourceEventId,
+                    sourceOfferID: item.sourceOfferId
                 )
             }
+            let activeMapped = mapped.filter { $0.endAt > now }
+            let activeIDs = Set(activeMapped.map(\.id))
 
             let coordinatePairs = items.compactMap { item -> (Int, CLLocationCoordinate2D)? in
-                guard let coordinate = validCoordinate(lat: item.lat, lng: item.lng) else {
+                guard activeIDs.contains(item.id) else { return nil }
+                guard let exactCoordinate = validCoordinate(lat: item.lat, lng: item.lng) else {
                     return nil
                 }
-                return (item.id, coordinate)
+                let isJoined = item.host == currentUserID || item.participants.contains {
+                    $0.user == currentUserID && $0.status.lowercased() == "approved"
+                }
+                let displayCoordinate = isJoined
+                    ? exactCoordinate
+                    : obfuscatedHangoutCoordinate(exactCoordinate, hangoutID: item.id)
+                return (item.id, displayCoordinate)
             }
             let visibleIDs = Set(coordinatePairs.map { $0.0 })
-            mapHangouts = mapped
+            mapHangouts = activeMapped
                 .filter { visibleIDs.contains($0.id) }
                 .sorted { $0.startAt < $1.startAt }
             mapHangoutCoordinates = Dictionary(uniqueKeysWithValues: coordinatePairs)
@@ -517,7 +565,7 @@ struct RootTabView: View {
     @MainActor
     private func loadMapEvents() async {
         do {
-            let items = try await session.fetchUpcomingEvents()
+            let items = try await session.fetchUpcomingEvents(cityPlaceId: session.activeCityPlaceId)
             let mapped = items.compactMap(mapDiscoveryEvent)
             let coordinatePairs = items.compactMap { item -> (Int, CLLocationCoordinate2D)? in
                 guard
@@ -542,8 +590,7 @@ struct RootTabView: View {
     @MainActor
     private func loadMapOffers() async {
         do {
-            let items = try await session.fetchActiveOffers()
-            let mapped = items.compactMap(mapDiscoveryOffer)
+            let items = try await session.fetchActiveOffers(cityPlaceId: session.activeCityPlaceId)
             mapOffers = []
             mapOfferCoordinates = [:]
         } catch {
@@ -601,44 +648,9 @@ struct RootTabView: View {
                 bio: item.description ?? "Venue offer available through FriendZone.",
                 instagram: item.ownerUsername ?? "",
                 website: "",
-                city: session.currentProfile?.cityName ?? "Berlin"
+                city: session.activeCityName ?? "Berlin"
             )
         )
-    }
-
-    @MainActor
-    private func createMapHangout(_ submission: CreateHangoutSubmission) async throws {
-        let normalized = CreateHangoutSubmission(
-            title: submission.title,
-            description: submission.description,
-            vibe: submission.vibe,
-            languages: submission.languages,
-            locationName: submission.locationName,
-            locationAddress: submission.locationAddress,
-            cityName: submission.cityName,
-            cityPlaceID: submission.cityPlaceID,
-            latitude: submission.latitude,
-            longitude: submission.longitude,
-            startAt: submission.startAt,
-            durationHours: submission.durationHours,
-            isTimeFlexible: submission.isTimeFlexible,
-            capacity: submission.capacity,
-            isCapacityUnlimited: submission.isCapacityUnlimited,
-            visibility: submission.visibility,
-            inviteCode: submission.inviteCode,
-            genderPreference: submission.genderPreference,
-            audienceTags: submission.audienceTags,
-            isMicro: submission.isMicro,
-            isLive: submission.isLive,
-            sourceType: submission.sourceType,
-            sourceLabel: pendingMapHangoutSourceLabel,
-            sourceEventID: pendingMapHangoutSourceEventID,
-            sourceOfferID: pendingMapHangoutSourceOfferID,
-            coverImageData: submission.coverImageData,
-            coverSeed: submission.coverSeed
-        )
-        _ = try await session.createHangout(from: normalized)
-        shouldRefreshMapHangoutsAfterCreate = true
     }
 
     private func parseServerDate(_ raw: String) -> Date? {
@@ -686,6 +698,78 @@ struct RootTabView: View {
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
+    private func obfuscatedHangoutCoordinate(_ coordinate: CLLocationCoordinate2D, hangoutID: Int) -> CLLocationCoordinate2D {
+        let angle = Double((hangoutID * 73) % 360) * .pi / 180
+        let radiusMeters = 220 + Double((hangoutID * 37) % 140)
+        let latitudeOffset = (radiusMeters / 111_320.0) * cos(angle)
+        let longitudeScale = max(1, 111_320.0 * cos(coordinate.latitude * .pi / 180))
+        let longitudeOffset = (radiusMeters / longitudeScale) * sin(angle)
+        return CLLocationCoordinate2D(
+            latitude: coordinate.latitude + latitudeOffset,
+            longitude: coordinate.longitude + longitudeOffset
+        )
+    }
+
+    private func geocodeCityCenter(_ cityName: String) {
+        let geocoder = CLGeocoder()
+        geocoder.geocodeAddressString(cityName) { placemarks, _ in
+            DispatchQueue.main.async {
+                let coordinate = placemarks?.first?.location?.coordinate
+                    ?? CLLocationCoordinate2D(latitude: 52.52, longitude: 13.405)
+                userCoordinate = coordinate
+                isCenteredOnPreciseLocation = false
+                focusMap(on: coordinate, span: cityFallbackMapSpan)
+            }
+        }
+    }
+
+    private var mapCityLabel: String {
+        let city = session.activeCityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return city.isEmpty ? "Your area" : city
+    }
+
+    private func centerMapOnRegisteredHome() {
+        let cityName = session.activeCityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        isCenteredOnPreciseLocation = false
+
+        if !cityName.isEmpty {
+            geocodeCityCenter(cityName)
+        } else if hasStoredMapViewport {
+            restoreStoredMapViewport()
+        }
+    }
+
+    private var hasStoredMapViewport: Bool {
+        storedMapCenterLat != 0 || storedMapCenterLon != 0
+    }
+
+    private var preciseUserMapSpan: MKCoordinateSpan {
+        MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045)
+    }
+
+    private var cityFallbackMapSpan: MKCoordinateSpan {
+        MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+    }
+
+    private func focusMap(on coordinate: CLLocationCoordinate2D, span: MKCoordinateSpan) {
+        guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
+        withAnimation(.easeInOut(duration: 0.28)) {
+            mapRegion = MKCoordinateRegion(center: coordinate, span: span)
+        }
+    }
+
+    private func restoreStoredMapViewport() {
+        let restoredLat = min(90, max(-90, storedMapCenterLat))
+        let restoredLon = min(180, max(-180, storedMapCenterLon))
+        let coordinate = CLLocationCoordinate2D(latitude: restoredLat, longitude: restoredLon)
+        userCoordinate = coordinate
+        isCenteredOnPreciseLocation = false
+        focusMap(on: coordinate, span: MKCoordinateSpan(
+            latitudeDelta: min(80, max(0.002, storedMapSpanLatDelta)),
+            longitudeDelta: min(80, max(0.002, storedMapSpanLonDelta))
+        ))
+    }
+
     private func persistMapViewport() {
         let lat = mapRegion.center.latitude
         let lon = mapRegion.center.longitude
@@ -712,6 +796,7 @@ struct RootTabView_Previews: PreviewProvider {
 #endif
 
 private struct PersistentDiscoveryMapView: View {
+    @EnvironmentObject private var session: AppSessionStore
     @Binding var region: MKCoordinateRegion
     let hangouts: [HangoutItem]
     let hangoutCoordinates: [Int: CLLocationCoordinate2D]
@@ -722,6 +807,16 @@ private struct PersistentDiscoveryMapView: View {
     let userCoordinate: CLLocationCoordinate2D
     @Binding var selectedSelectionID: String?
     let isInteractive: Bool
+
+    private var userInitials: String {
+        if let first = session.currentProfile?.user?.firstName?.prefix(1), !first.isEmpty {
+            return first.uppercased()
+        }
+        if let first = session.currentUser?.firstName?.prefix(1), !first.isEmpty {
+            return first.uppercased()
+        }
+        return String(session.currentUser?.username.prefix(1).uppercased() ?? "?")
+    }
 
     private var markers: [DiscoveryMapMarker] {
         var items = [DiscoveryMapMarker.user(coordinate: userCoordinate)]
@@ -796,8 +891,8 @@ private struct PersistentDiscoveryMapView: View {
     }
 
     private var userMarker: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Circle()
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [Color(hex: "#1F2937"), Color(hex: "#111827")],
@@ -805,57 +900,98 @@ private struct PersistentDiscoveryMapView: View {
                         endPoint: .bottomTrailing
                     )
                 )
+                .frame(width: 11, height: 11)
+                .rotationEffect(.degrees(45))
+                .offset(y: 5)
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "#374151"), Color(hex: "#111827")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
                 .frame(width: 46, height: 46)
                 .overlay {
-                    Text("U")
+                    Text(userInitials)
                         .font(FriendZoneTheme.Typography.system(17, weight: .bold))
                         .foregroundColor(.white)
                 }
                 .overlay {
-                    Circle().stroke(Color.white, lineWidth: 3)
+                    Circle().stroke(Color.white, lineWidth: 2.5)
                 }
-                .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 4)
-
-            Circle()
-                .fill(Color(hex: "#30D158"))
-                .frame(width: 12, height: 12)
-                .overlay {
-                    Circle().stroke(Color.white, lineWidth: 2)
+                .shadow(color: Color.black.opacity(0.32), radius: 10, x: 0, y: 4)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle()
+                        .fill(Color(hex: "#30D158"))
+                        .frame(width: 12, height: 12)
+                        .overlay { Circle().stroke(Color.white, lineWidth: 2) }
                 }
         }
     }
 
     private func hangoutMarker(vibe: HangoutVibe, isToday: Bool) -> some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [vibeColor(vibe), vibeColor(vibe).opacity(0.75)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 11, height: 11)
+                .rotationEffect(.degrees(45))
+                .offset(y: 5)
+
             Circle()
-                .fill(vibeColor(vibe))
-                .frame(width: 40, height: 40)
+                .fill(
+                    LinearGradient(
+                        colors: [vibeColor(vibe).opacity(0.95), vibeColor(vibe).opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 42, height: 42)
                 .overlay {
                     Text(vibeEmoji(vibe))
-                        .font(.system(size: 18))
+                        .font(.system(size: 20))
                 }
                 .overlay {
-                    Circle().stroke(Color.white, lineWidth: 3)
+                    Circle().stroke(Color.white, lineWidth: 2.5)
                 }
-                .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 3)
-
-            if isToday {
-                Circle()
-                    .fill(Color(hex: "#FF3B30"))
-                    .frame(width: 10, height: 10)
-                    .overlay {
-                        Circle().stroke(Color.white, lineWidth: 2)
+                .shadow(color: vibeColor(vibe).opacity(0.45), radius: 8, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(0.15), radius: 4, x: 0, y: 2)
+                .overlay(alignment: .topTrailing) {
+                    if isToday {
+                        Circle()
+                            .fill(Color(hex: "#FF3B30"))
+                            .frame(width: 11, height: 11)
+                            .overlay { Circle().stroke(Color.white, lineWidth: 2) }
                     }
-            }
+                }
         }
     }
 
     private func clusterMarker(count: Int, vibe: HangoutVibe, isToday: Bool) -> some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "#1F2937"), Color(hex: "#374151")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 11, height: 11)
+                .rotationEffect(.degrees(45))
+                .offset(y: 5)
+
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [Color(hex: "#111827"), Color(hex: "#374151")],
+                        colors: [Color(hex: "#1F2937"), Color(hex: "#374151")],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -867,26 +1003,26 @@ private struct PersistentDiscoveryMapView: View {
                         .foregroundColor(.white)
                 }
                 .overlay {
-                    Circle().stroke(Color.white, lineWidth: 3)
+                    Circle().stroke(Color.white, lineWidth: 2.5)
                 }
-                .shadow(color: Color.black.opacity(0.28), radius: 9, x: 0, y: 3)
-
-            Text(vibeEmoji(vibe))
-                .font(.system(size: 11))
-                .padding(3)
-                .background(Color.white.opacity(0.92))
-                .clipShape(Circle())
-                .offset(x: 6, y: -4)
-
-            if isToday {
-                Circle()
-                    .fill(Color(hex: "#FF3B30"))
-                    .frame(width: 10, height: 10)
-                    .overlay {
-                        Circle().stroke(Color.white, lineWidth: 2)
+                .shadow(color: Color.black.opacity(0.32), radius: 10, x: 0, y: 4)
+                .overlay(alignment: .topTrailing) {
+                    ZStack {
+                        Text(vibeEmoji(vibe))
+                            .font(.system(size: 11))
+                            .padding(3)
+                            .background(Color.white.opacity(0.92))
+                            .clipShape(Circle())
+                            .offset(x: 6, y: -4)
+                        if isToday {
+                            Circle()
+                                .fill(Color(hex: "#FF3B30"))
+                                .frame(width: 10, height: 10)
+                                .overlay { Circle().stroke(Color.white, lineWidth: 2) }
+                                .offset(x: 10, y: -18)
+                        }
                     }
-                    .offset(x: 10, y: -8)
-            }
+                }
         }
     }
 
@@ -1141,19 +1277,17 @@ private struct MapsOverlayView: View {
                     HStack {
                         Spacer()
                         Button(action: onLocateMe) {
-                            Image(systemName: "location")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 50, height: 50)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color(hex: "#0F172A"), Color(hex: "#1F2937")],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(FriendZoneTheme.Colors.primary)
+                                .frame(width: 48, height: 48)
+                                .background(.ultraThinMaterial)
                                 .clipShape(Circle())
-                                .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 4)
+                                .overlay {
+                                    Circle()
+                                        .stroke(FriendZoneTheme.Colors.primary.opacity(0.25), lineWidth: 1)
+                                }
+                                .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 3)
                         }
                         .buttonStyle(.plain)
                         .padding(.trailing, 16)
@@ -1170,21 +1304,14 @@ private struct MapsOverlayView: View {
         }
     }
 
-    private var hangoutsCountLabel: String {
-        let count = hangouts.count
-        let suffix = count == 1 ? "" : "s"
-        return "\(count) hangout\(suffix)"
-    }
-
     private func mapsHeader(topInset: CGFloat) -> some View {
         FriendZoneModuleHeader(
             leadingText: "Explore ",
             highlightText: "Maps",
-            topInset: 0,
-            horizontalPadding: 16
+            topInset: topInset,
+            horizontalPadding: FriendZoneTheme.Chrome.horizontalInset
         )
-        .padding(.horizontal, 16)
-        .padding(.top, topInset + 12)
+        .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
     }
 
     @ViewBuilder
@@ -1214,7 +1341,7 @@ private struct MapsOverlayView: View {
                 previewThumbnail(hangout)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(hangout.locationDisplay.uppercased())
+                    Text(hangout.publicLocationDisplay.uppercased())
                         .font(FriendZoneTheme.Typography.system(10, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                         .lineLimit(1)
@@ -1248,6 +1375,9 @@ private struct MapsOverlayView: View {
                     mapMetaChip(icon: "clock.fill", text: timeLabel(hangout.startAt))
                     mapMetaChip(icon: "figure.walk", text: hangout.distanceLabel)
                     mapMetaChip(icon: "person.2.fill", text: hangout.spotsLeft > 0 ? "\(hangout.spotsLeft) left" : "Full")
+                    if !hangout.hasUnlockedLocation {
+                        mapMetaChip(icon: "lock.fill", text: "Area only")
+                    }
                     mapMetaChip(icon: "tag.fill", text: hangout.priceTier.shortLabel)
                     if Calendar.current.isDateInToday(hangout.startAt) {
                         mapMetaChip(icon: "sparkles", text: "TODAY", isAccent: true)
@@ -1535,7 +1665,7 @@ private struct MapsOverlayView: View {
     }
 }
 
-private enum SelectedMapDiscoveryItem: Identifiable {
+enum SelectedMapDiscoveryItem: Identifiable {
     case hangout(HangoutItem)
     case event(HangoutsView.DiscoveryEventItem)
     case offer(HangoutsView.DiscoveryOfferItem)

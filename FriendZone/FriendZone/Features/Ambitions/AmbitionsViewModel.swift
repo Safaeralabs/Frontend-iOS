@@ -7,9 +7,11 @@ final class AmbitionsViewModel: ObservableObject {
     @Published private(set) var matches: [AmbitionMatch] = []
 
     @Published private(set) var isLoading = false
+    @Published private(set) var isCreating = false
     @Published private(set) var activeMatchActions: [Int: AmbitionMatchAction] = [:]
     @Published var pendingOpenHangoutID: Int?
     @Published var errorMessage: String?
+    @Published var successMessage: String?
 
     private let service: AmbitionsAPIServiceProtocol
     private var hasLoaded = false
@@ -78,6 +80,39 @@ final class AmbitionsViewModel: ObservableObject {
         isLoading = false
     }
 
+    func createQuickAmbition(_ payload: QuickAmbitionPayload) async {
+        guard !isCreating else { return }
+        isCreating = true
+        errorMessage = nil
+        successMessage = nil
+
+        defer { isCreating = false }
+
+        do {
+            let response = try await service.createQuickAmbition(payload)
+            ambitions.insert(response.ambition, at: 0)
+
+            if let match = response.match {
+                upsertMatch(match)
+                if let hangoutID = match.hangout {
+                    pendingOpenHangoutID = hangoutID
+                    successMessage = "Hangout unlocked."
+                } else if (match.userStatus ?? "").lowercased() == "accepted" {
+                    successMessage = "You are in. Waiting on the others."
+                } else {
+                    successMessage = "Signal sent. We found a possible crew."
+                }
+            } else {
+                successMessage = "Signal sent. We will keep looking."
+            }
+
+            hasLoaded = true
+            try await refreshMatchesOnly()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     func respondToMatch(matchID: Int, action: AmbitionMatchAction) async {
         guard activeMatchActions[matchID] == nil else { return }
         activeMatchActions[matchID] = action
@@ -108,6 +143,10 @@ final class AmbitionsViewModel: ObservableObject {
 
     func clearPendingHangoutOpen() {
         pendingOpenHangoutID = nil
+    }
+
+    func clearSuccessMessage() {
+        successMessage = nil
     }
 
     func pollForHangoutUpdates() async {

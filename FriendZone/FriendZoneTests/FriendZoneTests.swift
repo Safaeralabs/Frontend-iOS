@@ -111,6 +111,91 @@ struct FriendZoneTests {
         #expect(hangout.joinRequests.first?.userUsername == "luca")
     }
 
+    @Test func hangoutListDecodesFlatArrayResponse() throws {
+        let data = Data(
+            """
+            [
+              {
+                "id": 9,
+                "host": 7,
+                "host_username": "hoster",
+                "title": "Afterwork Drinks",
+                "description": "Quick meetup",
+                "cover_image_url": null,
+                "city_name": "Munich",
+                "location_name": "Canal Bar",
+                "lat": "48.137154",
+                "lng": "11.576124",
+                "start_at": "2026-03-10T18:00:00Z",
+                "end_at": "2026-03-10T20:00:00Z",
+                "capacity": 6,
+                "approved_participants_count": 3,
+                "status": "active",
+                "source_type": "community",
+                "source_event_id": null,
+                "source_offer_id": null,
+                "vibe": "drinks",
+                "participants": [],
+                "join_requests": []
+              }
+            ]
+            """.utf8
+        )
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let hangouts = try decodeAppSessionAPIArrayResponse(HangoutFeedItem.self, from: data, decoder: decoder)
+
+        #expect(hangouts.count == 1)
+        #expect(hangouts.first?.cityName == "Munich")
+        #expect(hangouts.first?.lat == 48.137154)
+    }
+
+    @Test func hangoutListDecodesPaginatedResultsResponse() throws {
+        let data = Data(
+            """
+            {
+              "count": 1,
+              "next": null,
+              "previous": null,
+              "results": [
+                {
+                  "id": 10,
+                  "host": 8,
+                  "host_username": "andres",
+                  "title": "Munich Brunch",
+                  "description": "Sunday plan",
+                  "cover_image_url": null,
+                  "city_name": "Munich",
+                  "location_name": "Marienplatz",
+                  "lat": "48.137154",
+                  "lng": "11.576124",
+                  "start_at": "2026-03-11T11:00:00Z",
+                  "end_at": "2026-03-11T13:00:00Z",
+                  "capacity": 4,
+                  "approved_participants_count": 2,
+                  "status": "active",
+                  "source_type": "community",
+                  "source_event_id": null,
+                  "source_offer_id": null,
+                  "vibe": "social",
+                  "participants": [],
+                  "join_requests": []
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let hangouts = try decodeAppSessionAPIArrayResponse(HangoutFeedItem.self, from: data, decoder: decoder)
+
+        #expect(hangouts.count == 1)
+        #expect(hangouts.first?.title == "Munich Brunch")
+        #expect(hangouts.first?.lng == 11.576124)
+    }
+
     @Test func discoveryEventFeedDecodesOptionalCoordinates() throws {
         let data = Data(
             """

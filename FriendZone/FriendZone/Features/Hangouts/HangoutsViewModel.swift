@@ -6,17 +6,35 @@ final class HangoutsViewModel: ObservableObject {
     @Published private(set) var allHangouts: [HangoutItem] = []
     @Published private(set) var isLoading = true
 
-    @Published var selectedTimeline: HangoutsTimelineTab = .today
+    @Published var selectedTimeline: HangoutsTimelineTab {
+        didSet { persistViewState() }
+    }
     @Published var selectedFilter: HangoutsFilterMode = .forYou
-    @Published var selectedDay: Date
+    @Published var selectedDay: Date {
+        didSet { persistViewState() }
+    }
     @Published var advancedFilters = HangoutsAdvancedFilters.default
     @Published private(set) var requestedJoinIDs: Set<Int> = []
 
     private let calendar = Calendar.current
+    private let defaults = UserDefaults.standard
     private var hasLoaded = false
+    private static let selectedTimelineKey = "fz.hangouts.selectedTimeline"
+    private static let selectedDayKey = "fz.hangouts.selectedDay"
 
     init() {
-        selectedDay = calendar.startOfDay(for: Date())
+        if let rawValue = defaults.string(forKey: Self.selectedTimelineKey),
+           let timeline = HangoutsTimelineTab(rawValue: rawValue) {
+            selectedTimeline = timeline
+        } else {
+            selectedTimeline = .today
+        }
+
+        if let timestamp = defaults.object(forKey: Self.selectedDayKey) as? TimeInterval {
+            selectedDay = calendar.startOfDay(for: Date(timeIntervalSince1970: timestamp))
+        } else {
+            selectedDay = calendar.startOfDay(for: Date())
+        }
     }
 
     var weekDays: [Date] {
@@ -179,7 +197,7 @@ final class HangoutsViewModel: ObservableObject {
     }
 
     func addCreatedHangout(from draft: CreateHangoutDraft) {
-        let endAt = draft.startAt.addingTimeInterval(Double(draft.durationHours) * 60 * 60)
+        let endAt = draft.endAt
         let newID = (allHangouts.map(\.id).max() ?? 100) + 1
 
         let item = HangoutItem(
@@ -187,22 +205,35 @@ final class HangoutsViewModel: ObservableObject {
             sourceType: draft.sourceType,
             title: draft.title,
             description: draft.description,
-            vibe: draft.vibe,
+            vibe: mapCreateVibe(draft.vibe),
             cityName: draft.cityName,
             locationName: draft.locationName.isEmpty ? nil : draft.locationName,
+            locationAddress: draft.locationAddress.isEmpty ? nil : draft.locationAddress,
+            latitude: draft.latitude,
+            longitude: draft.longitude,
+            hostUserID: nil,
             hostName: "you",
             startAt: draft.startAt,
             endAt: endAt,
             capacity: draft.capacity,
+            isCapacityUnlimited: draft.isCapacityUnlimited,
             approvedCount: 1,
-            isLive: draft.isLive,
-            isMicro: draft.isMicro,
             isJoined: true,
-            participantNames: ["You"],
+            participantNames: [],
             coverImageData: draft.coverImageData,
             coverSeed: draft.coverSeed,
             distanceKm: 0.8,
-            priceTier: .free
+            priceTier: .free,
+            visibility: draft.visibility,
+            inviteCode: draft.inviteCode.isEmpty ? nil : draft.inviteCode,
+            inviteCodeHint: draft.inviteCodeHint.isEmpty ? nil : draft.inviteCodeHint,
+            allowWaitlist: draft.allowWaitlist,
+            genderPreference: draft.visibility == .inviteOnly ? .any : draft.genderPreference,
+            audienceTags: draft.audienceTags,
+            languages: draft.languages,
+            isTimeFlexible: draft.isTimeFlexible,
+            sourceEventID: draft.sourceEventID,
+            sourceOfferID: draft.sourceOfferID
         )
 
         allHangouts.insert(item, at: 0)
@@ -217,8 +248,30 @@ final class HangoutsViewModel: ObservableObject {
         }
     }
 
+    private func mapCreateVibe(_ vibe: HangoutCreateVibe) -> HangoutVibe {
+        switch vibe {
+        case .chill:
+            return .chill
+        case .drinks:
+            return .drinks
+        case .deepTalks:
+            return .deepTalk
+        case .sporty, .outdoors:
+            return .sporty
+        case .food:
+            return .foodie
+        case .creative, .social, .party, .boardGames, .culture:
+            return .activity
+        }
+    }
+
     func clearAdvancedFilters() {
         advancedFilters = .default
+    }
+
+    private func persistViewState() {
+        defaults.set(selectedTimeline.rawValue, forKey: Self.selectedTimelineKey)
+        defaults.set(calendar.startOfDay(for: selectedDay).timeIntervalSince1970, forKey: Self.selectedDayKey)
     }
 
     func joinStatus(for item: HangoutItem) -> HangoutJoinStatus {

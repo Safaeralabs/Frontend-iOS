@@ -62,8 +62,8 @@ struct NativeCreatorSpaceHubView: View {
                         highlightText: "Space",
                         subtitle: "Manage your creator dashboard"
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+                    .padding(.top, FriendZoneTheme.Chrome.topOffset)
 
                     if !rolePills.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -83,28 +83,28 @@ struct NativeCreatorSpaceHubView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
+                        .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+                        .padding(.top, FriendZoneTheme.Chrome.sectionGap)
                     }
 
                     publicProfileButton
-                        .padding(.top, 10)
+                        .padding(.top, FriendZoneTheme.Chrome.sectionGap)
 
                     tabBar
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
+                        .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+                        .padding(.top, FriendZoneTheme.Chrome.sectionGap)
 
                     tabContent
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
+                        .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+                        .padding(.top, FriendZoneTheme.Chrome.sectionGap)
                         .padding(.bottom, 120)
 
                     if let dashboardErrorMessage {
                         Text(dashboardErrorMessage)
                             .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
                             .foregroundColor(FriendZoneTheme.Colors.error)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
+                            .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+                            .padding(.top, FriendZoneTheme.Chrome.sectionGap)
                             .padding(.bottom, 24)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -1883,9 +1883,15 @@ private struct CreatorCreateEventSheet: View {
 
     let onCreate: (CreatorEventItem) -> Void
 
+    @StateObject private var venueSearch = ApplePlaceSearchModel()
     @State private var title = ""
     @State private var category = "music"
     @State private var venueName = ""
+    @State private var venueAddress = ""
+    @State private var cityName = ""
+    @State private var cityPlaceId = ""
+    @State private var venueLatitude: Double?
+    @State private var venueLongitude: Double?
     @State private var startAt = Date().addingTimeInterval(60 * 60 * 24)
     @State private var endAt = Date().addingTimeInterval(60 * 60 * 26)
     @State private var capacity = 50
@@ -1898,95 +1904,184 @@ private struct CreatorCreateEventSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Create Event")
-                        .font(FriendZoneTheme.Typography.system(24, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                    if !errorMessage.isEmpty {
-                        formError(errorMessage)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    eventHeroCard
+                    creatorSection("Event Details") {
+                        formField("Category *") {
+                            Picker("Category", selection: $category) {
+                                ForEach(categories, id: \.self) { value in
+                                    Text(value.capitalized).tag(value)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
                     }
+                    creatorSection("Venue") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            creatorInfoBox("Search a venue to prefill address, city and coordinates.")
 
-                    formField("Title *") {
-                        TextField("Event name", text: $title)
-                    }
+                            formField("Search Venue") {
+                                TextField("Search place or address", text: $venueSearch.query)
+                            }
 
-                    formField("Category *") {
-                        Picker("Category", selection: $category) {
-                            ForEach(categories, id: \.self) { value in
-                                Text(value.capitalized).tag(value)
+                            if venueSearch.isSearching {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            if !venueSearch.suggestions.isEmpty {
+                                autocompleteSuggestions(venueSearch.suggestions) { suggestion in
+                                    Task { await applyVenueSuggestion(suggestion) }
+                                }
+                            }
+
+                            formField("Venue *") {
+                                TextField("Venue name", text: $venueName)
+                            }
+
+                            if !venueAddress.isEmpty {
+                                formField("Resolved Address") {
+                                    Text(venueAddress)
+                                        .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+
+                            if !cityName.isEmpty {
+                                formField("City") {
+                                    Text(cityName)
+                                        .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                                        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
                             }
                         }
-                        .pickerStyle(.menu)
                     }
+                    creatorSection("Schedule") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 10) {
+                                formField("Starts *") {
+                                    DatePicker("", selection: $startAt, displayedComponents: [.date, .hourAndMinute])
+                                        .labelsHidden()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                formField("Ends *") {
+                                    DatePicker("", selection: $endAt, displayedComponents: [.date, .hourAndMinute])
+                                        .labelsHidden()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
 
-                    formField("Venue *") {
-                        TextField("Venue name", text: $venueName)
-                    }
-
-                    HStack(spacing: 10) {
-                        formField("Starts *") {
-                            DatePicker("", selection: $startAt, displayedComponents: [.date, .hourAndMinute])
-                                .labelsHidden()
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            creatorStepperRow(
+                                title: "Capacity",
+                                subtitle: "How many people can join this event?",
+                                valueText: "\(capacity) spots",
+                                decrementDisabled: capacity <= 1,
+                                incrementDisabled: capacity >= 500,
+                                onDecrement: { capacity = max(1, capacity - 1) },
+                                onIncrement: { capacity = min(500, capacity + 1) }
+                            )
                         }
-                        formField("Ends *") {
-                            DatePicker("", selection: $endAt, displayedComponents: [.date, .hourAndMinute])
-                                .labelsHidden()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
                     }
-
-                    formField("Capacity *") {
-                        Stepper(value: $capacity, in: 1 ... 500) {
-                            Text("\(capacity)")
-                                .font(FriendZoneTheme.Typography.system(15, weight: .semibold))
-                        }
-                    }
-
-                    formField("Description") {
+                    creatorSection("Description", optionalHint: "optional") {
                         TextEditor(text: $description)
-                            .frame(minHeight: 92)
+                            .font(FriendZoneTheme.Typography.system(15, weight: .regular))
+                            .frame(minHeight: 110)
+                            .padding(8)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.black.opacity(0.03))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(FriendZoneTheme.Colors.borderDefault, lineWidth: 1.5)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
-                .padding(16)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
             }
             .background(FriendZoneTheme.Colors.background)
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top) {
+                creatorSheetTopBar(title: "Create Event", badge: "EVENT") {
+                    dismiss()
+                }
+            }
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button("Cancel") {
+                creatorSheetBottomBar(
+                    errorMessage: errorMessage,
+                    primaryTitle: isSubmitting ? "Creating..." : "Create Event",
+                    primaryDisabled: isSubmitting,
+                    cancelAction: {
                         dismiss()
-                    }
-                    .buttonStyle(.plain)
-                    .font(FriendZoneTheme.Typography.system(15, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(FriendZoneTheme.Colors.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    Button(isSubmitting ? "Creating..." : "Create Event") {
+                    },
+                    primaryAction: {
                         Task { await create() }
                     }
-                    .buttonStyle(.plain)
-                    .font(FriendZoneTheme.Typography.system(15, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(FriendZoneTheme.Colors.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .disabled(isSubmitting)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-                .background(FriendZoneTheme.Colors.surface.opacity(0.98))
+                )
             }
         }
     }
 
+    private var eventHeroCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField(
+                "",
+                text: $title,
+                prompt: Text("What's your event?")
+                    .foregroundColor(Color.black.opacity(0.18)),
+                axis: .vertical
+            )
+            .font(FriendZoneTheme.Typography.system(30, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            .lineLimit(2 ... 3)
+
+            HStack {
+                Text("EVENT BASICS")
+                    .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                    .tracking(1)
+
+                Spacer()
+
+                Text("\(title.trimmingCharacters(in: .whitespacesAndNewlines).count) chars")
+                    .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            }
+
+            Divider()
+                .overlay(FriendZoneTheme.Colors.borderSubtle)
+
+            ZStack(alignment: .topLeading) {
+                if description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Add the context, crowd, or what people should expect.")
+                        .font(FriendZoneTheme.Typography.system(15, weight: .regular))
+                        .foregroundColor(Color.black.opacity(0.25))
+                        .padding(.top, 8)
+                        .padding(.leading, 6)
+                }
+
+                TextEditor(text: $description)
+                    .font(FriendZoneTheme.Typography.system(15, weight: .regular))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                    .frame(minHeight: 100)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 20)
+        .background(FriendZoneTheme.Colors.surface)
+    }
+
     @MainActor
     private func create() async {
+        let resolvedCityName = cityName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (session.currentProfile?.cityName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            : cityName.trimmingCharacters(in: .whitespacesAndNewlines)
+
         if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
@@ -1997,8 +2092,8 @@ private struct CreatorCreateEventSheet: View {
             errorMessage = "End time must be after start time."
             return
         }
-        guard !(session.currentProfile?.cityName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Set your city in profile before creating events."
+        guard !resolvedCityName.isEmpty else {
+            errorMessage = "Select a venue or set your city in profile before creating events."
             return
         }
 
@@ -2010,7 +2105,11 @@ private struct CreatorCreateEventSheet: View {
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 description: description.trimmingCharacters(in: .whitespacesAndNewlines),
                 venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines),
-                venueAddress: "",
+                venueAddress: venueAddress.trimmingCharacters(in: .whitespacesAndNewlines),
+                city: resolvedCityName.isEmpty ? nil : resolvedCityName,
+                cityPlaceId: cityPlaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : cityPlaceId.trimmingCharacters(in: .whitespacesAndNewlines),
+                lat: venueLatitude,
+                lng: venueLongitude,
                 startAt: startAt,
                 endAt: endAt,
                 capacity: capacity,
@@ -2033,6 +2132,33 @@ private struct CreatorCreateEventSheet: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    @MainActor
+    private func applyVenueSuggestion(_ suggestion: ApplePlaceSuggestion) async {
+        do {
+            let resolved = try await venueSearch.resolve(suggestion)
+            venueName = resolved.name
+            venueAddress = resolved.formattedAddress
+            venueLatitude = resolved.latitude
+            venueLongitude = resolved.longitude
+            if let latitude = resolved.latitude, let longitude = resolved.longitude {
+                let guessed = try await session.guessLocation(
+                    lat: latitude,
+                    lng: longitude,
+                    cityName: resolved.cityName,
+                    country: resolved.countryCode ?? resolved.countryName
+                )
+                cityName = guessed.cityName
+                cityPlaceId = guessed.cityPlaceId
+            } else if let city = resolved.cityName {
+                cityName = city
+            }
+            venueSearch.query = resolved.formattedAddress.isEmpty ? resolved.name : resolved.formattedAddress
+            venueSearch.clearSuggestions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }
 
 private struct CreatorCreateVenueSheet: View {
@@ -2040,9 +2166,13 @@ private struct CreatorCreateVenueSheet: View {
     @EnvironmentObject private var session: AppSessionStore
     let onCreate: (CreatorVenueItem) -> Void
 
+    @StateObject private var placeSearch = ApplePlaceSearchModel()
     @State private var name = ""
     @State private var address = ""
     @State private var city = ""
+    @State private var cityPlaceId = ""
+    @State private var venueLatitude: Double?
+    @State private var venueLongitude: Double?
     @State private var category = "bar"
     @State private var errorMessage = ""
     @State private var isSubmitting = false
@@ -2052,72 +2182,99 @@ private struct CreatorCreateVenueSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Add Venue")
-                        .font(FriendZoneTheme.Typography.system(24, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                    if !errorMessage.isEmpty {
-                        formError(errorMessage)
-                    }
-
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    venueHeroCard
                     requestStatusBox
+                    creatorSection("Venue Details") {
+                        formField("Category *") {
+                            Picker("Category", selection: $category) {
+                                ForEach(categories, id: \.self) { value in
+                                    Text(value.capitalized).tag(value)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                    }
+                    creatorSection("Location") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            creatorInfoBox("Use place search to prefill address and the canonical city used by the backend.")
 
-                    formField("Category *") {
-                        Picker("Category", selection: $category) {
-                            ForEach(categories, id: \.self) { value in
-                                Text(value.capitalized).tag(value)
+                            formField("Search Place") {
+                                TextField("Search venue or address", text: $placeSearch.query)
+                            }
+
+                            if placeSearch.isSearching {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            if !placeSearch.suggestions.isEmpty {
+                                autocompleteSuggestions(placeSearch.suggestions) { suggestion in
+                                    Task { await applyPlaceSuggestion(suggestion) }
+                                }
+                            }
+
+                            formField("Venue Name *") {
+                                TextField("Venue name", text: $name)
+                            }
+
+                            formField("Address *") {
+                                TextField("Full address", text: $address)
+                            }
+
+                            formField("City *") {
+                                TextField("City", text: $city)
                             }
                         }
-                        .pickerStyle(.menu)
-                    }
-
-                    formField("Venue Name *") {
-                        TextField("Venue name", text: $name)
-                    }
-
-                    formField("Address *") {
-                        TextField("Full address", text: $address)
-                    }
-
-                    formField("City *") {
-                        TextField("City", text: $city)
                     }
                 }
-                .padding(16)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
             }
             .background(FriendZoneTheme.Colors.background)
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top) {
+                creatorSheetTopBar(title: "Add Venue", badge: "VENUE") {
+                    dismiss()
+                }
+            }
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button("Cancel") {
+                creatorSheetBottomBar(
+                    errorMessage: errorMessage,
+                    primaryTitle: isSubmitting ? "Submitting..." : "Submit Venue Request",
+                    primaryDisabled: isSubmitting,
+                    cancelAction: {
                         dismiss()
-                    }
-                    .buttonStyle(.plain)
-                    .font(FriendZoneTheme.Typography.system(15, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(FriendZoneTheme.Colors.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    Button(isSubmitting ? "Submitting..." : "Submit Venue Request") {
+                    },
+                    primaryAction: {
                         Task { await create() }
                     }
-                    .buttonStyle(.plain)
-                    .font(FriendZoneTheme.Typography.system(15, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(FriendZoneTheme.Colors.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .disabled(isSubmitting)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-                .background(FriendZoneTheme.Colors.surface.opacity(0.98))
+                )
             }
         }
+    }
+
+    private var venueHeroCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField(
+                "",
+                text: $name,
+                prompt: Text("What's the venue?")
+                    .foregroundColor(Color.black.opacity(0.18)),
+                axis: .vertical
+            )
+            .font(FriendZoneTheme.Typography.system(30, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            .lineLimit(2 ... 3)
+
+            Text("Add the venue you manage so it can be reviewed and activated for events and offers.")
+                .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 20)
+        .background(FriendZoneTheme.Colors.surface)
     }
 
     private var requestStatusBox: some View {
@@ -2134,7 +2291,7 @@ private struct CreatorCreateVenueSheet: View {
                 .font(FriendZoneTheme.Typography.system(12, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
 
-            Text("Until place search is integrated, the app creates a manual venue reference from your typed address.")
+            Text("Use place search to prefill address and canonical city data before submitting.")
                 .font(FriendZoneTheme.Typography.system(11, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textTertiary)
         }
@@ -2150,10 +2307,14 @@ private struct CreatorCreateVenueSheet: View {
 
     @MainActor
     private func create() async {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+
         errorMessage = ""
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if normalizedName.isEmpty ||
+            normalizedAddress.isEmpty ||
+            normalizedCity.isEmpty
         {
             errorMessage = "Name, address and city are required."
             return
@@ -2164,10 +2325,13 @@ private struct CreatorCreateVenueSheet: View {
 
         do {
             let created = try await session.createCreatorVenue(
-                name: name,
+                name: normalizedName,
                 category: category,
-                address: address,
-                city: city
+                address: normalizedAddress,
+                city: normalizedCity,
+                cityPlaceId: cityPlaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : cityPlaceId.trimmingCharacters(in: .whitespacesAndNewlines),
+                lat: venueLatitude,
+                lng: venueLongitude
             )
             let item = CreatorVenueItem(
                 id: created.id,
@@ -2183,6 +2347,34 @@ private struct CreatorCreateVenueSheet: View {
             )
             onCreate(item)
             dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func applyPlaceSuggestion(_ suggestion: ApplePlaceSuggestion) async {
+        do {
+            let resolved = try await placeSearch.resolve(suggestion)
+            name = resolved.name
+            address = resolved.formattedAddress
+            venueLatitude = resolved.latitude
+            venueLongitude = resolved.longitude
+            if let latitude = resolved.latitude, let longitude = resolved.longitude {
+                let guessed = try await session.guessLocation(
+                    lat: latitude,
+                    lng: longitude,
+                    cityName: resolved.cityName,
+                    country: resolved.countryCode ?? resolved.countryName
+                )
+                city = guessed.cityName
+                cityPlaceId = guessed.cityPlaceId
+            } else if let resolvedCity = resolved.cityName {
+                city = resolvedCity
+                cityPlaceId = ""
+            }
+            placeSearch.query = resolved.formattedAddress.isEmpty ? resolved.name : resolved.formattedAddress
+            placeSearch.clearSuggestions()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2227,117 +2419,148 @@ private struct CreatorCreateOfferSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Create Offer")
-                        .font(FriendZoneTheme.Typography.system(24, weight: .bold))
-                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                    if !errorMessage.isEmpty {
-                        formError(errorMessage)
-                    }
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    offerHeroCard
 
                     if selectableVenues.isEmpty {
-                        Text("You need at least one approved venue before creating offers.")
-                            .font(FriendZoneTheme.Typography.system(14, weight: .medium))
-                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                            .padding(12)
-                            .background(FriendZoneTheme.Colors.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        creatorSection("Venue Required") {
+                            Text("You need at least one approved venue before creating offers.")
+                                .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(FriendZoneTheme.Colors.surfaceMuted)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
                     } else {
-                        formField("Title *") {
-                            TextField("Happy hour special", text: $title)
-                        }
-                        formField("Perk *") {
-                            TextField("2x1 cocktails", text: $perk)
-                        }
-                        formField("Venue *") {
-                            Picker("Venue", selection: $selectedVenueID) {
-                                Text("Select venue...").tag(nil as Int?)
-                                ForEach(selectableVenues) { venue in
-                                    Text(venue.name).tag(venue.id as Int?)
+                        creatorSection("Offer Details") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                formField("Venue *") {
+                                    Picker("Venue", selection: $selectedVenueID) {
+                                        Text("Select venue...").tag(nil as Int?)
+                                        ForEach(selectableVenues) { venue in
+                                            Text(venue.name).tag(venue.id as Int?)
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                }
+
+                                formField("Recurrence") {
+                                    Picker("Recurrence", selection: $recurrence) {
+                                        ForEach(recurrenceOptions, id: \.self) { value in
+                                            Text(value == "none" ? "One-time" : value.capitalized).tag(value)
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
                                 }
                             }
-                            .pickerStyle(.menu)
                         }
 
-                        HStack(spacing: 10) {
-                            formField("Valid from *") {
-                                DatePicker("", selection: $validFrom, displayedComponents: [.date])
-                                    .labelsHidden()
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            formField("Valid until *") {
-                                DatePicker("", selection: $validUntil, displayedComponents: [.date])
-                                    .labelsHidden()
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-
-                        formField("Recurrence") {
-                            Picker("Recurrence", selection: $recurrence) {
-                                ForEach(recurrenceOptions, id: \.self) { value in
-                                    Text(value == "none" ? "One-time" : value.capitalized).tag(value)
+                        creatorSection("Validity") {
+                            HStack(spacing: 10) {
+                                formField("Valid from *") {
+                                    DatePicker("", selection: $validFrom, displayedComponents: [.date])
+                                        .labelsHidden()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                formField("Valid until *") {
+                                    DatePicker("", selection: $validUntil, displayedComponents: [.date])
+                                        .labelsHidden()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
-                            .pickerStyle(.menu)
                         }
 
-                        formField("Capacity (optional)") {
-                            Stepper(value: Binding(get: {
-                                capacity ?? 1
-                            }, set: { newValue in
-                                capacity = newValue
-                            }), in: 1 ... 500) {
-                                Text(capacity == nil ? "Unlimited" : "\(capacity ?? 0)")
-                                    .font(FriendZoneTheme.Typography.system(15, weight: .semibold))
-                            }
+                        creatorSection("Capacity", optionalHint: "optional") {
+                            creatorStepperRow(
+                                title: "Claims capacity",
+                                subtitle: "Set a limit, or leave it unlimited.",
+                                valueText: capacity == nil ? "Unlimited" : "\(capacity ?? 0) claims",
+                                decrementDisabled: capacity == nil ? false : (capacity ?? 1) <= 1,
+                                incrementDisabled: capacity == nil ? false : (capacity ?? 0) >= 500,
+                                onDecrement: {
+                                    if let current = capacity {
+                                        capacity = current <= 1 ? nil : max(1, current - 1)
+                                    } else {
+                                        capacity = 25
+                                    }
+                                },
+                                onIncrement: {
+                                    capacity = min(500, (capacity ?? 0) + 1)
+                                }
+                            )
                         }
 
-                        formField("Description") {
+                        creatorSection("Description", optionalHint: "optional") {
                             TextEditor(text: $description)
-                                .frame(minHeight: 78)
+                                .font(FriendZoneTheme.Typography.system(15, weight: .regular))
+                                .frame(minHeight: 100)
+                                .padding(8)
+                                .scrollContentBackground(.hidden)
+                                .background(Color.black.opacity(0.03))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(FriendZoneTheme.Colors.borderDefault, lineWidth: 1.5)
+                                }
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
 
-                        Toggle("Auto-create a hangout when published", isOn: $autoCreateHangout)
-                            .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
-                            .tint(FriendZoneTheme.Colors.primary)
+                        creatorSection("Automation") {
+                            creatorToggleCard(
+                                title: "Auto-create a hangout when published",
+                                subtitle: "Turn a promoted offer into an instant social entry point.",
+                                isOn: $autoCreateHangout
+                            )
+                        }
                     }
                 }
-                .padding(16)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
             }
             .background(FriendZoneTheme.Colors.background)
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top) {
+                creatorSheetTopBar(title: "Create Offer", badge: "OFFER") {
+                    dismiss()
+                }
+            }
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button("Cancel") {
+                creatorSheetBottomBar(
+                    errorMessage: errorMessage,
+                    primaryTitle: isSubmitting ? "Creating..." : "Create Offer",
+                    primaryDisabled: selectableVenues.isEmpty || isSubmitting,
+                    cancelAction: {
                         dismiss()
-                    }
-                    .buttonStyle(.plain)
-                    .font(FriendZoneTheme.Typography.system(15, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(FriendZoneTheme.Colors.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    Button(isSubmitting ? "Creating..." : "Create Offer") {
+                    },
+                    primaryAction: {
                         Task { await create() }
                     }
-                    .buttonStyle(.plain)
-                    .font(FriendZoneTheme.Typography.system(15, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(FriendZoneTheme.Colors.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .disabled(selectableVenues.isEmpty || isSubmitting)
-                    .opacity((selectableVenues.isEmpty || isSubmitting) ? 0.6 : 1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-                .background(FriendZoneTheme.Colors.surface.opacity(0.98))
+                )
             }
         }
+    }
+
+    private var offerHeroCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField(
+                "",
+                text: $title,
+                prompt: Text("What's the offer?")
+                    .foregroundColor(Color.black.opacity(0.18)),
+                axis: .vertical
+            )
+            .font(FriendZoneTheme.Typography.system(30, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            .lineLimit(2 ... 3)
+
+            formField("Perk *") {
+                TextField("2x1 cocktails", text: $perk)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 20)
+        .background(FriendZoneTheme.Colors.surface)
     }
 
     @MainActor
@@ -2404,6 +2627,255 @@ private struct CreatorCreateOfferSheet: View {
     }
 }
 
+private func creatorSheetTopBar(
+    title: String,
+    badge: String? = nil,
+    onCancel: @escaping () -> Void
+) -> some View {
+    HStack(spacing: 12) {
+        Button("Cancel") {
+            onCancel()
+        }
+        .buttonStyle(.plain)
+        .font(FriendZoneTheme.Typography.system(16, weight: .medium))
+        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+
+        Spacer(minLength: 0)
+
+        Text(title)
+            .font(FriendZoneTheme.Typography.system(17, weight: .semibold))
+            .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+        Spacer(minLength: 0)
+
+        if let badge, !badge.isEmpty {
+            Text(badge)
+                .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Color(hex: "#7C3AED"))
+                .clipShape(Capsule())
+        } else {
+            Color.clear
+                .frame(width: 56, height: 26)
+        }
+    }
+    .padding(.horizontal, 16)
+    .padding(.top, 8)
+    .padding(.bottom, 12)
+    .background(FriendZoneTheme.Colors.surface)
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(FriendZoneTheme.Colors.borderSubtle)
+            .frame(height: 1)
+    }
+}
+
+private func creatorSheetBottomBar(
+    errorMessage: String,
+    primaryTitle: String,
+    primaryDisabled: Bool,
+    cancelAction: @escaping () -> Void,
+    primaryAction: @escaping () -> Void
+) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+        if !errorMessage.isEmpty {
+            formError(errorMessage)
+        }
+
+        HStack(spacing: 10) {
+            Button("Cancel") {
+                cancelAction()
+            }
+            .buttonStyle(.plain)
+            .font(FriendZoneTheme.Typography.system(15, weight: .semibold))
+            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(FriendZoneTheme.Colors.surfaceMuted)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            Button(primaryTitle) {
+                primaryAction()
+            }
+            .buttonStyle(.plain)
+            .font(FriendZoneTheme.Typography.system(15, weight: .bold))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(
+                LinearGradient(
+                    colors: [FriendZoneTheme.Colors.primary, Color(hex: "#7C3AED")],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .disabled(primaryDisabled)
+            .opacity(primaryDisabled ? 0.65 : 1)
+        }
+    }
+    .padding(.horizontal, 16)
+    .padding(.top, 10)
+    .padding(.bottom, 12)
+    .background(FriendZoneTheme.Colors.surface.opacity(0.98))
+    .overlay(alignment: .top) {
+        Rectangle()
+            .fill(FriendZoneTheme.Colors.borderSubtle)
+            .frame(height: 1)
+    }
+}
+
+private func creatorSection<Content: View>(
+    _ title: String,
+    optionalHint: String? = nil,
+    @ViewBuilder content: () -> Content
+) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title.uppercased())
+                .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+                .tracking(1)
+
+            if let optionalHint, !optionalHint.isEmpty {
+                Text("(\(optionalHint))")
+                    .font(FriendZoneTheme.Typography.system(10, weight: .regular))
+                    .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            }
+        }
+
+        content()
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 18)
+    .background(FriendZoneTheme.Colors.surface)
+}
+
+private func creatorInfoBox(_ text: String) -> some View {
+    Text(text)
+        .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+        .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(FriendZoneTheme.Colors.primarySoft)
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(FriendZoneTheme.Colors.primarySoftBorder, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+}
+
+private func creatorStepperRow(
+    title: String,
+    subtitle: String,
+    valueText: String,
+    decrementDisabled: Bool = false,
+    incrementDisabled: Bool = false,
+    onDecrement: @escaping () -> Void,
+    onIncrement: @escaping () -> Void
+) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+        Text(title.uppercased())
+            .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+            .foregroundColor(FriendZoneTheme.Colors.textTertiary)
+            .tracking(0.8)
+
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(subtitle)
+                    .font(FriendZoneTheme.Typography.system(14, weight: .medium))
+                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+
+                Text(valueText)
+                    .font(FriendZoneTheme.Typography.system(18, weight: .bold))
+                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+            }
+
+            Spacer()
+
+            HStack(spacing: 14) {
+                Button {
+                    onDecrement()
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .frame(width: 32, height: 32)
+                        .background(FriendZoneTheme.Colors.surface)
+                        .overlay {
+                            Circle().stroke(Color.black.opacity(0.10), lineWidth: 1)
+                        }
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(decrementDisabled)
+                .opacity(decrementDisabled ? 0.35 : 1)
+
+                Button {
+                    onIncrement()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .frame(width: 32, height: 32)
+                        .background(FriendZoneTheme.Colors.surface)
+                        .overlay {
+                            Circle().stroke(Color.black.opacity(0.10), lineWidth: 1)
+                        }
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(incrementDisabled)
+                .opacity(incrementDisabled ? 0.35 : 1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(Color.black.opacity(0.02))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private func creatorToggleCard(
+    title: String,
+    subtitle: String,
+    isOn: Binding<Bool>
+) -> some View {
+    HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(FriendZoneTheme.Typography.system(14, weight: .semibold))
+                .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+
+            Text(subtitle)
+                .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+                .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+        }
+
+        Spacer()
+
+        Toggle("", isOn: isOn)
+            .labelsHidden()
+            .tint(FriendZoneTheme.Colors.primary)
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 12)
+    .background(Color.black.opacity(0.02))
+    .overlay {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(Color.black.opacity(0.06), lineWidth: 1)
+    }
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+}
+
 private func formField<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 5) {
         Text(label.uppercased())
@@ -2420,6 +2892,48 @@ private func formField<Content: View>(_ label: String, @ViewBuilder content: () 
                     .stroke(FriendZoneTheme.Colors.borderDefault, lineWidth: 1.5)
             }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private func autocompleteSuggestions(
+    _ suggestions: [ApplePlaceSuggestion],
+    onTap: @escaping (ApplePlaceSuggestion) -> Void
+) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+            Button {
+                onTap(suggestion)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(suggestion.title)
+                        .font(FriendZoneTheme.Typography.system(14, weight: .semibold))
+                        .foregroundColor(FriendZoneTheme.Colors.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if !suggestion.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(suggestion.subtitle)
+                            .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+                            .foregroundColor(FriendZoneTheme.Colors.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if index < suggestions.count - 1 {
+                Divider()
+                    .overlay(FriendZoneTheme.Colors.borderSubtle)
+            }
+        }
+    }
+    .background(FriendZoneTheme.Colors.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(FriendZoneTheme.Colors.borderSubtle, lineWidth: 1)
     }
 }
 

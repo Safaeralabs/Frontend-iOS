@@ -4,6 +4,7 @@ protocol AmbitionsAPIServiceProtocol {
     func listAmbitions(status: String?) async throws -> [Ambition]
     func listMatches(status: String?) async throws -> [AmbitionMatch]
     func listPatterns() async throws -> [RecurringAvailability]
+    func createQuickAmbition(_ payload: QuickAmbitionPayload) async throws -> QuickAmbitionCreateResponse
     func acceptMatch(matchID: Int) async throws -> AmbitionMatch
     func declineMatch(matchID: Int) async throws
 }
@@ -31,6 +32,7 @@ enum AmbitionsAPIError: LocalizedError {
 final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
 
     init() {
         let configuration = URLSessionConfiguration.default
@@ -43,6 +45,8 @@ final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
         self.session = URLSession(configuration: configuration)
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
+        self.encoder = JSONEncoder()
+        self.encoder.keyEncodingStrategy = .convertToSnakeCase
     }
 
     func listAmbitions(status: String?) async throws -> [Ambition] {
@@ -57,6 +61,11 @@ final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
 
     func listPatterns() async throws -> [RecurringAvailability] {
         try await requestArray(path: "/api/ambitions/recurring-availabilities/", queryItems: [])
+    }
+
+    func createQuickAmbition(_ payload: QuickAmbitionPayload) async throws -> QuickAmbitionCreateResponse {
+        let body = try encoder.encode(payload)
+        return try await requestObject(path: "/api/ambitions/quick/", method: "POST", body: body)
     }
 
     func acceptMatch(matchID: Int) async throws -> AmbitionMatch {
@@ -75,9 +84,10 @@ final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
     private func requestObject<T: Decodable>(
         path: String,
         method: String,
-        queryItems: [URLQueryItem] = []
+        queryItems: [URLQueryItem] = [],
+        body: Data? = nil
     ) async throws -> T {
-        let data = try await request(path: path, method: method, queryItems: queryItems)
+        let data = try await request(path: path, method: method, queryItems: queryItems, body: body)
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
@@ -88,15 +98,17 @@ final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
     private func requestVoid(
         path: String,
         method: String,
-        queryItems: [URLQueryItem] = []
+        queryItems: [URLQueryItem] = [],
+        body: Data? = nil
     ) async throws {
-        _ = try await request(path: path, method: method, queryItems: queryItems)
+        _ = try await request(path: path, method: method, queryItems: queryItems, body: body)
     }
 
     private func request(
         path: String,
         method: String,
-        queryItems: [URLQueryItem]
+        queryItems: [URLQueryItem],
+        body: Data? = nil
     ) async throws -> Data {
         var components = URLComponents(url: AppConfig.url(for: path), resolvingAgainstBaseURL: false)
         if !queryItems.isEmpty {
@@ -110,6 +122,10 @@ final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -165,4 +181,16 @@ final class AmbitionsAPIService: AmbitionsAPIServiceProtocol {
 private struct APIArrayEnvelope<T: Decodable>: Decodable {
     let results: [T]?
     let data: [T]?
+}
+
+struct QuickAmbitionPayload: Encodable {
+    let primaryInterest: String
+    let signalType: String
+    let vibe: String
+    let cityPlaceId: String
+    let cityName: String
+    let interests: [String]
+    let lat: Double?
+    let lng: Double?
+    let radiusKm: Int
 }

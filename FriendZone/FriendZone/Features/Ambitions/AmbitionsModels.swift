@@ -59,3 +59,8 @@ struct RecurringAvailability: Decodable, Identifiable {
     let isActive: Bool?
     let lastGeneratedAt: String?
 }
+
+struct QuickAmbitionCreateResponse: Decodable {
+    let ambition: Ambition
+    let match: AmbitionMatch?
+}

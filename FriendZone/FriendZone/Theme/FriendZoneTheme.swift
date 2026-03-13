@@ -69,6 +69,13 @@ enum FriendZoneTheme {
         static let lg = FriendZoneTokens.Shadows.lg
     }
 
+    enum Chrome {
+        static let horizontalInset: CGFloat = 16
+        static let topOffset: CGFloat = 10
+        static let sectionGap: CGFloat = 8
+        static let moduleHeaderContentTop: CGFloat = 10
+    }
+
     enum Typography {
         static let size2XS = FriendZoneTokens.Typography.size2XS
         static let sizeXS = FriendZoneTokens.Typography.sizeXS
@@ -111,7 +118,7 @@ struct FriendZoneModuleHeader<Trailing: View>: View {
         highlightText: String,
         subtitle: String? = nil,
         topInset: CGFloat = 0,
-        horizontalPadding: CGFloat = 20,
+        horizontalPadding: CGFloat = FriendZoneTheme.Chrome.horizontalInset,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.leadingText = leadingText
@@ -148,7 +155,7 @@ struct FriendZoneModuleHeader<Trailing: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, horizontalPadding)
-        .padding(.top, topInset + 16)
+        .padding(.top, topInset + FriendZoneTheme.Chrome.moduleHeaderContentTop)
         .padding(.bottom, 14)
         .background(FriendZoneTheme.Colors.surface.opacity(0.96))
         .clipShape(RoundedRectangle(cornerRadius: FriendZoneTheme.Radius.x2l, style: .continuous))
@@ -166,7 +173,7 @@ extension FriendZoneModuleHeader where Trailing == EmptyView {
         highlightText: String,
         subtitle: String? = nil,
         topInset: CGFloat = 0,
-        horizontalPadding: CGFloat = 20
+        horizontalPadding: CGFloat = FriendZoneTheme.Chrome.horizontalInset
     ) {
         self.init(
             leadingText: leadingText,
