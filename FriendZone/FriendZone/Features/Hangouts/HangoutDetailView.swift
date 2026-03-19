@@ -154,6 +154,11 @@ struct HangoutDetailView: View {
             guard !Task.isCancelled else { return }
             shouldRenderLocationMap = true
         }
+        .safeAreaInset(edge: .bottom) {
+            if shouldPinPrimaryAction {
+                persistentBottomActionBar
+            }
+        }
     }
 
     private var background: some View {
@@ -309,8 +314,10 @@ struct HangoutDetailView: View {
 
             Spacer(minLength: 0)
 
-            primaryBottomAction
-                .padding(.bottom, 8)
+            if !shouldPinPrimaryAction {
+                primaryBottomAction
+                    .padding(.bottom, 8)
+            }
 
             pageCue(
                 title: "Swipe down for hangout info",
@@ -378,20 +385,21 @@ struct HangoutDetailView: View {
 
     private var hangoutDetailsCard: some View {
         detailSectionCard(
-            title: "Hangout details"
+            title: "Hangout details",
+            compact: true
         ) {
             if !trimmedHangoutDescription.isEmpty {
-                detailBodyCopy(trimmedHangoutDescription)
+                detailBodyCopy(trimmedHangoutDescription, compact: true)
             }
 
-            detailFactGrid(items: hangoutDetailItems)
+            detailFactGrid(items: hangoutDetailItems, compact: true)
 
             if !detailLanguageLabels.isEmpty {
-                detailChipSection(title: "Languages", chips: detailLanguageLabels)
+                detailChipSection(title: "Languages", chips: detailLanguageLabels, compact: true)
             }
 
             if !detailAudienceLabels.isEmpty {
-                detailChipSection(title: "Audience", chips: detailAudienceLabels)
+                detailChipSection(title: "Audience", chips: detailAudienceLabels, compact: true)
             }
         }
     }
@@ -426,17 +434,18 @@ struct HangoutDetailView: View {
     private func detailSectionCard<Content: View>(
         title: String,
         subtitle: String? = nil,
+        compact: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: compact ? 6 : 10) {
+            VStack(alignment: .leading, spacing: compact ? 1 : 3) {
                 Text(title)
-                    .font(FriendZoneTheme.Typography.system(14, weight: .bold))
+                    .font(FriendZoneTheme.Typography.system(compact ? 12.5 : 14, weight: .bold))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(FriendZoneTheme.Typography.system(10.5, weight: .medium))
+                        .font(FriendZoneTheme.Typography.system(compact ? 10 : 10.5, weight: .medium))
                         .foregroundColor(FriendZoneTheme.Colors.textSecondary)
                         .lineSpacing(1.4)
                 }
@@ -444,7 +453,7 @@ struct HangoutDetailView: View {
 
             content()
         }
-        .padding(12)
+        .padding(compact ? 8 : 12)
         .background(FriendZoneTheme.Colors.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
@@ -453,11 +462,12 @@ struct HangoutDetailView: View {
         }
     }
 
-    private func detailBodyCopy(_ text: String) -> some View {
+    private func detailBodyCopy(_ text: String, compact: Bool = false) -> some View {
         Text(text)
-            .font(FriendZoneTheme.Typography.system(12, weight: .medium))
+            .font(FriendZoneTheme.Typography.system(compact ? 11 : 12, weight: .medium))
             .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            .lineSpacing(1.8)
+            .lineSpacing(compact ? 1.2 : 1.8)
+            .lineLimit(compact ? 2 : nil)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -465,34 +475,34 @@ struct HangoutDetailView: View {
         Array(repeating: GridItem(.flexible(), spacing: 10), count: 2)
     }
 
-    private func detailFactGrid(items: [DetailFactItem]) -> some View {
-        LazyVGrid(columns: detailFactColumns, alignment: .leading, spacing: 10) {
+    private func detailFactGrid(items: [DetailFactItem], compact: Bool = false) -> some View {
+        LazyVGrid(columns: detailFactColumns, alignment: .leading, spacing: compact ? 6 : 10) {
             ForEach(items) { item in
-                detailFactTile(item)
+                detailFactTile(item, compact: compact)
             }
         }
     }
 
-    private func detailFactTile(_ item: DetailFactItem) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func detailFactTile(_ item: DetailFactItem, compact: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 2 : 4) {
             Text(item.title.uppercased())
-                .font(FriendZoneTheme.Typography.system(9, weight: .bold))
+                .font(FriendZoneTheme.Typography.system(compact ? 8.5 : 9, weight: .bold))
                 .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                 .tracking(0.6)
 
             Text(item.value)
-                .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                .font(FriendZoneTheme.Typography.system(compact ? 11 : 12, weight: .bold))
                 .foregroundColor(item.accent)
-                .lineLimit(2)
+                .lineLimit(1)
 
             Text(item.subtitle)
-                .font(FriendZoneTheme.Typography.system(10, weight: .medium))
+                .font(FriendZoneTheme.Typography.system(compact ? 9 : 10, weight: .medium))
                 .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                .lineSpacing(1.3)
-                .lineLimit(3)
+                .lineSpacing(compact ? 1.0 : 1.3)
+                .lineLimit(compact ? 1 : 3)
         }
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
-        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: compact ? 50 : 72, alignment: .topLeading)
+        .padding(compact ? 7 : 10)
         .background(FriendZoneTheme.Colors.surfaceElevated.opacity(0.94))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
@@ -501,20 +511,20 @@ struct HangoutDetailView: View {
         }
     }
 
-    private func detailChipSection(title: String, chips: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func detailChipSection(title: String, chips: [String], compact: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 5 : 8) {
             Text(title.uppercased())
-                .font(FriendZoneTheme.Typography.system(9, weight: .bold))
+                .font(FriendZoneTheme.Typography.system(compact ? 8.5 : 9, weight: .bold))
                 .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                 .tracking(0.6)
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 82 : 96), spacing: compact ? 5 : 8)], alignment: .leading, spacing: compact ? 5 : 8) {
                 ForEach(chips, id: \.self) { chip in
                     Text(chip)
-                        .font(FriendZoneTheme.Typography.system(10.5, weight: .semibold))
+                        .font(FriendZoneTheme.Typography.system(compact ? 9.5 : 10.5, weight: .semibold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                        .padding(.horizontal, 9)
-                        .frame(height: 28)
+                        .padding(.horizontal, compact ? 7 : 9)
+                        .frame(height: compact ? 22 : 28)
                         .background(FriendZoneTheme.Colors.surfaceElevated.opacity(0.94))
                         .clipShape(Capsule())
                         .overlay {
@@ -880,7 +890,7 @@ struct HangoutDetailView: View {
     }
 
     private var peopleLocationCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("People & Location")
                     .font(FriendZoneTheme.Typography.system(13, weight: .bold))
@@ -899,13 +909,13 @@ struct HangoutDetailView: View {
                         compactParticipantPill(person)
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 1)
             }
 
             Divider()
                 .overlay(FriendZoneTheme.Colors.borderSubtle)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text("Location")
                         .font(FriendZoneTheme.Typography.system(10, weight: .bold))
@@ -927,23 +937,25 @@ struct HangoutDetailView: View {
                 detailLocationMapCard
 
                 Text(locationStatusTitle)
-                    .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                    .font(FriendZoneTheme.Typography.system(11, weight: .bold))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
 
                 Text(locationStatusSubtitle)
-                    .font(FriendZoneTheme.Typography.system(10, weight: .medium))
+                    .font(FriendZoneTheme.Typography.system(9.5, weight: .medium))
                     .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-                    .lineSpacing(1.3)
+                    .lineSpacing(1.1)
+                    .lineLimit(2)
 
                 if !isLocationHidden, let displayedLocationAddress {
                     Text(displayedLocationAddress)
-                        .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
+                        .font(FriendZoneTheme.Typography.system(9.5, weight: .semibold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-                        .lineSpacing(1.3)
+                        .lineSpacing(1.1)
+                        .lineLimit(2)
                 }
             }
         }
-        .padding(12)
+        .padding(10)
         .background(FriendZoneTheme.Colors.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
@@ -956,15 +968,15 @@ struct HangoutDetailView: View {
         Button {
             openPublicProfile(for: person)
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 ZStack(alignment: .bottomTrailing) {
-                    participantAvatar(for: person.initials, color: person.tint, size: 24)
+                    participantAvatar(for: person.initials, color: person.tint, size: 21)
 
                     if person.role == "Host" {
                         Image(systemName: "crown.fill")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 7, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 14, height: 14)
+                            .frame(width: 12, height: 12)
                             .background(FriendZoneTheme.Colors.primary)
                             .clipShape(Circle())
                             .overlay {
@@ -983,12 +995,12 @@ struct HangoutDetailView: View {
                 }
 
                 Text(person.firstName)
-                    .font(FriendZoneTheme.Typography.system(10, weight: .bold))
+                    .font(FriendZoneTheme.Typography.system(9.5, weight: .bold))
                     .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 34)
+            .padding(.horizontal, 7)
+            .frame(height: 30)
             .background(FriendZoneTheme.Colors.surfaceElevated.opacity(0.92))
             .clipShape(Capsule())
             .overlay {
@@ -1027,21 +1039,21 @@ struct HangoutDetailView: View {
                         .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
                 }
             }
-            .frame(height: 112)
+            .frame(height: 84)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .topLeading) {
                 HStack(spacing: 6) {
                     Image(systemName: isLocationHidden ? "lock.fill" : "mappin")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                     Text(isLocationHidden ? "Area only" : "Pinned spot")
-                        .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
+                        .font(FriendZoneTheme.Typography.system(9, weight: .semibold))
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
+                .padding(.horizontal, 7)
+                .frame(height: 20)
                 .background(Color.black.opacity(0.55))
                 .clipShape(Capsule())
-                .padding(7)
+                .padding(6)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1060,15 +1072,15 @@ struct HangoutDetailView: View {
 
                 VStack(spacing: 8) {
                     Image(systemName: isLocationHidden ? "lock.square.fill" : "map.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(isLocationHidden ? FriendZoneTheme.Colors.textTertiary : detailAccentColor)
 
                     Text(isLocationHidden ? "Loading area preview" : "Loading map preview")
-                        .font(FriendZoneTheme.Typography.system(11, weight: .bold))
+                        .font(FriendZoneTheme.Typography.system(10, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                 }
             }
-            .frame(height: 112)
+            .frame(height: 84)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1084,14 +1096,14 @@ struct HangoutDetailView: View {
 
                 VStack(spacing: 8) {
                     Image(systemName: "map")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(FriendZoneTheme.Colors.textTertiary)
                     Text("Map unavailable")
-                        .font(FriendZoneTheme.Typography.system(12, weight: .bold))
+                        .font(FriendZoneTheme.Typography.system(10.5, weight: .bold))
                         .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                 }
             }
-            .frame(height: 112)
+            .frame(height: 84)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1249,6 +1261,24 @@ struct HangoutDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var persistentBottomActionBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .overlay(FriendZoneTheme.Colors.borderSubtle)
+
+            HStack {
+                primaryBottomAction
+            }
+            .padding(.horizontal, FriendZoneTheme.Chrome.horizontalInset)
+            .padding(.top, 10)
+            .padding(.bottom, 10)
+            .frame(maxWidth: 430)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial)
+        }
+        .background(FriendZoneTheme.Colors.background.opacity(0.94))
+    }
+
     private func bottomActionButton(
         title: String,
         subtitle: String,
@@ -1363,6 +1393,10 @@ struct HangoutDetailView: View {
         isHost || localJoinStatus == .joined
     }
 
+    private var shouldPinPrimaryAction: Bool {
+        !isHost && localJoinStatus != .joined
+    }
+
     private var hasRequestsPanel: Bool {
         isHost && !joinRequests.isEmpty && !isCancelledByHost
     }
@@ -1381,7 +1415,8 @@ struct HangoutDetailView: View {
     }
 
     private var detailCountdownText: String {
-        timeRemainingText(from: Date(), to: hangout.startAt) ?? "SOON"
+        if hangout.isLive { return "LIVE" }
+        return timeRemainingText(from: Date(), to: hangout.startAt) ?? "SOON"
     }
 
     private var spotsLabel: String {

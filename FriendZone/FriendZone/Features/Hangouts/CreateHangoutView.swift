@@ -503,12 +503,6 @@ struct CreateHangoutView: View {
     private var locationCard: some View {
         section("Where") {
             VStack(alignment: .leading, spacing: 10) {
-                editorialCard(
-                    icon: model.hasResolvedLocation ? "📍" : "🧭",
-                    title: locationPulseTitle,
-                    detail: locationPulseDetail
-                )
-
                 locationSearchField
 
                 if placeSearch.isSearching {
@@ -595,8 +589,6 @@ struct CreateHangoutView: View {
 
                 quickDayShortcutRow
 
-                timingSummaryCard
-
                 HStack(spacing: 10) {
                     modernPickerCard("Day", systemImage: "calendar") {
                         DatePicker("", selection: $model.startDate, displayedComponents: .date)
@@ -616,9 +608,7 @@ struct CreateHangoutView: View {
 
                 durationCard
 
-                if model.isTimeFlexible {
-                    infoNote("Day locked. Time open.")
-                }
+                timingSummaryCard
             }
         }
     }
@@ -626,12 +616,6 @@ struct CreateHangoutView: View {
     private var accessCard: some View {
         section("Who") {
             VStack(alignment: .leading, spacing: 10) {
-                editorialCard(
-                    icon: model.visibility == .inviteOnly ? "🔒" : "🌍",
-                    title: accessPulseTitle,
-                    detail: accessPulseDetail
-                )
-
                 VStack(alignment: .leading, spacing: 8) {
                     rowLabel("Visibility")
                     pillToggleRow {
@@ -645,12 +629,6 @@ struct CreateHangoutView: View {
                 }
 
                 groupSizeCard
-
-                toggleRow(
-                    title: "Keep It Open",
-                    subtitle: "Let the vibe set the size.",
-                    isOn: $model.isCapacityUnlimited
-                )
 
                 if model.visibility == .inviteOnly {
                     VStack(alignment: .leading, spacing: 12) {
@@ -680,8 +658,6 @@ struct CreateHangoutView: View {
                                 }
                             }
                         }
-
-                        infoNote(publicCrowdTitle)
                     }
                 }
             }
@@ -691,12 +667,6 @@ struct CreateHangoutView: View {
     private var audienceCard: some View {
         section("Languages & Audience") {
             VStack(alignment: .leading, spacing: 10) {
-                editorialCard(
-                    icon: "🌍",
-                    title: extrasPulseTitle,
-                    detail: extrasPulseDetail
-                )
-
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 5) {
                         rowLabel("Languages")
@@ -1081,26 +1051,6 @@ struct CreateHangoutView: View {
         model.isTimeFlexible ? Calendar.current.date(bySettingHour: 19, minute: 0, second: 0, of: model.startDate) ?? model.startDate : model.startAtForPreview
     }
 
-    private var locationPulseTitle: String {
-        if model.hasResolvedLocation {
-            return "Spot locked in"
-        }
-        if !placeSearch.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Choose the right spot"
-        }
-        return "Pick a real place"
-    }
-
-    private var locationPulseDetail: String {
-        if model.hasResolvedLocation {
-            return "Use the pencil if you want to swap it."
-        }
-        if !searchBiasCityName.isEmpty {
-            return "Results stay biased toward \(searchBiasCityName)."
-        }
-        return "Only dropdown selections count."
-    }
-
     private var planPulseTitle: String {
         let title = model.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = model.description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1151,110 +1101,8 @@ struct CreateHangoutView: View {
         hasSubtitle ? "ADDED" : "OPTIONAL"
     }
 
-    private var accessPulseTitle: String {
-        if model.visibility == .inviteOnly {
-            return "Private circle"
-        }
-        if model.genderPreference == .any {
-            return "Open plan"
-        }
-        return "Curated crowd"
-    }
-
-    private var accessPulseDetail: String {
-        if model.visibility == .inviteOnly {
-            return "Only guests with the code can join."
-        }
-
-        switch model.genderPreference {
-        case .any:
-            return model.isCapacityUnlimited ? "Anyone can join." : "\(model.capacity) spots available."
-        case .womenOnly:
-            return "Girls-first energy."
-        case .menOnly:
-            return "Boys-only energy."
-        }
-    }
-
-    private var publicCrowdEmoji: String {
-        switch model.genderPreference {
-        case .any: return "🫶"
-        case .womenOnly: return "💅"
-        case .menOnly: return "🕺"
-        }
-    }
-
-    private var publicCrowdTitle: String {
-        switch model.genderPreference {
-        case .any:
-            return "Anyone who likes the vibe can join"
-        case .womenOnly:
-            return "Girls-first energy is clear from the start"
-        case .menOnly:
-            return "This reads as a boys-only plan"
-        }
-    }
-
-    private var publicCrowdDetail: String {
-        if model.audienceTags.isEmpty {
-            return "You can leave it broad if the plan already explains who it is for."
-        }
-        return "Your audience tags will help the right people self-select without over-explaining."
-    }
-
-    private var extrasPulseTitle: String {
-        if model.languages.isEmpty && model.audienceTags.isEmpty {
-            return "Keep it open"
-        }
-        if !model.languages.isEmpty && !model.audienceTags.isEmpty {
-            return "Useful extra signals"
-        }
-        if !model.languages.isEmpty {
-            return "Language signal added"
-        }
-        return "Audience signal added"
-    }
-
-    private var extrasPulseDetail: String {
-        if model.languages.isEmpty && model.audienceTags.isEmpty {
-            return "All optional."
-        }
-
-        let languageText = model.languages.isEmpty ? nil : "Languages: \(selectedLanguageSummary)."
-        let audienceText = model.audienceTags.isEmpty ? nil : "Audience: \(selectedAudienceSummary)."
-        return [languageText, audienceText]
-            .compactMap { $0 }
-            .joined(separator: " ")
-    }
-
-    private var selectedLanguageSummary: String {
-        model.languages
-            .prefix(2)
-            .map(languageDisplayName)
-            .joined(separator: " · ")
-    }
-
-    private var selectedAudienceSummary: String {
-        model.audienceTags
-            .prefix(2)
-            .map(audienceDisplayName)
-            .joined(separator: " · ")
-    }
-
     private var previewHangoutVibe: HangoutVibe {
-        switch model.vibe {
-        case .chill: return .chill
-        case .social: return .activity
-        case .party: return .drinks
-        case .creative: return .deepTalk
-        case .outdoors: return .sporty
-        case .drinks: return .drinks
-        case .deepTalks: return .deepTalk
-        case .boardGames: return .activity
-        case .culture: return .deepTalk
-        case .sporty: return .sporty
-        case .food: return .foodie
-        }
+        model.vibe.hangoutVibe
     }
 
     private var locationSearchField: some View {
@@ -1760,32 +1608,6 @@ struct CreateHangoutView: View {
         return tag.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    private func editorialCard(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(icon)
-                .font(.system(size: 16))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(FriendZoneTheme.Typography.system(12, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                Text(detail)
-                    .font(FriendZoneTheme.Typography.system(11, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(Color.black.opacity(0.02))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
     private func capacityButton(symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -1800,38 +1622,6 @@ struct CreateHangoutView: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-    }
-
-    private func toggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 12) {
-            Text("∞")
-                .font(FriendZoneTheme.Typography.system(18, weight: .bold))
-                .foregroundColor(FriendZoneTheme.Colors.primary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(FriendZoneTheme.Typography.system(13, weight: .semibold))
-                    .foregroundColor(FriendZoneTheme.Colors.textPrimary)
-
-                Text(subtitle)
-                    .font(FriendZoneTheme.Typography.system(11, weight: .medium))
-                    .foregroundColor(FriendZoneTheme.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .tint(FriendZoneTheme.Colors.primary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color.black.opacity(0.02))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func pillToggleRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -2508,14 +2298,8 @@ private struct HangoutPreviewContainerView: View {
     var body: some View {
         VStack(spacing: 7) {
             ZStack {
-                HangoutCardView(
-                    hangout: hangout,
-                    now: Date(),
-                    animateEntrance: false,
-                    compactHostInfo: true,
-                    previewCompactLayout: true
-                )
-                .scaleEffect(0.935)
+                DiscoverHangoutCardView(hangout: hangout)
+                    .frame(width: 320)
                 .opacity(isShowingBack ? 0 : 1)
                 .rotation3DEffect(
                     .degrees(rotation),
@@ -2749,36 +2533,15 @@ private struct HangoutPreviewBackView: View {
     }
 
     private var vibeEmoji: String {
-        switch hangout.vibe {
-        case .chill: return "🛋️"
-        case .drinks: return "🍸"
-        case .deepTalk: return "🗣️"
-        case .activity: return "🫶"
-        case .foodie: return "🍝"
-        case .sporty: return "⚽"
-        }
+        hangout.vibe.emoji
     }
 
     private var vibeTitle: String {
-        switch hangout.vibe {
-        case .chill: return "Chill"
-        case .drinks: return "Drinks"
-        case .deepTalk: return "Deep Talks"
-        case .activity: return "Social"
-        case .foodie: return "Food"
-        case .sporty: return "Sporty"
-        }
+        hangout.vibe.title
     }
 
     private var accentColor: Color {
-        switch hangout.vibe {
-        case .chill: return Color(hex: "#667EEA")
-        case .drinks: return Color(hex: "#F59E0B")
-        case .deepTalk: return Color(hex: "#8B5CF6")
-        case .activity: return Color(hex: "#10B981")
-        case .foodie: return Color(hex: "#EF4444")
-        case .sporty: return Color(hex: "#0EA5E9")
-        }
+        hangout.vibe.accentColor
     }
 
     private var locationNote: String {
@@ -3001,6 +2764,7 @@ private struct VibeChipGrid: View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 9) {
             ForEach(vibes, id: \.rawValue) { vibe in
                 let isSelected = vibe == selectedVibe
+                let accent = vibe.accentColor
                 Button {
                     onSelect(vibe)
                 } label: {
@@ -3010,7 +2774,7 @@ private struct VibeChipGrid: View {
 
                         Text(vibe.title)
                             .font(FriendZoneTheme.Typography.system(10, weight: .semibold))
-                            .foregroundColor(isSelected ? FriendZoneTheme.Colors.primary : FriendZoneTheme.Colors.textSecondary)
+                            .foregroundColor(isSelected ? accent : FriendZoneTheme.Colors.textSecondary)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                     }
@@ -3020,19 +2784,19 @@ private struct VibeChipGrid: View {
                     .padding(.vertical, 8)
                     .background(
                         isSelected
-                            ? FriendZoneTheme.Colors.primarySoft
+                            ? accent.opacity(0.14)
                             : Color.white.opacity(0.92)
                     )
                     .overlay {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(
-                                isSelected ? FriendZoneTheme.Colors.primarySoftBorder : Color.black.opacity(0.08),
+                                isSelected ? accent.opacity(0.38) : Color.black.opacity(0.08),
                                 lineWidth: isSelected ? 1.5 : 1
                             )
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(
-                        color: isSelected ? FriendZoneTheme.Colors.primary.opacity(0.12) : Color.black.opacity(0.04),
+                        color: isSelected ? accent.opacity(0.16) : Color.black.opacity(0.04),
                         radius: isSelected ? 10 : 4,
                         x: 0,
                         y: isSelected ? 4 : 2

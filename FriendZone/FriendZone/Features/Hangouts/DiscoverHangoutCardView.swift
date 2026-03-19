@@ -105,7 +105,7 @@ struct DiscoverHangoutCardView: View {
                 .offset(x: -84, y: 72)
 
             discoverEmojiPattern(
-                emoji: discoverVibeEmoji(for: hangout.vibe),
+                emoji: hangout.vibe.emoji,
                 tint: palette.emojiTint,
                 isExtended: footer != nil
             )
@@ -170,7 +170,7 @@ struct DiscoverHangoutCardView: View {
                     }
 
                     labelChip(
-                        text: "\(discoverVibeEmoji(for: hangout.vibe)) \(hangout.vibe.title)",
+                        text: "\(hangout.vibe.emoji) \(hangout.vibe.title)",
                         foreground: palette.accent,
                         background: palette.badgeFill
                     )
@@ -245,7 +245,7 @@ struct DiscoverHangoutCardView: View {
                     .foregroundColor(palette.dateInk.opacity(0.88))
                     .multilineTextAlignment(.center)
 
-                Text(timeRemainingText(from: Date(), to: hangout.startAt) ?? "SOON")
+                Text(hangout.isLive ? "LIVE" : (timeRemainingText(from: Date(), to: hangout.startAt) ?? "SOON"))
                     .font(FriendZoneTheme.Typography.system(9, weight: .bold))
                     .foregroundColor(palette.dateInk)
                     .padding(.horizontal, 8)
@@ -408,98 +408,193 @@ private func discoverPalette(for vibe: HangoutVibe) -> DiscoverHangoutPalette {
             dateInk: Color.white,
             dateCapsule: Color.white.opacity(0.18)
         )
+    case .social:
+        return DiscoverHangoutPalette(
+            wallpaperTop: Color(hex: "#D7F1EE"),
+            wallpaperBottom: Color(hex: "#A8DED6"),
+            panel: Color(hex: "#F4FCFB"),
+            footerPanel: Color(hex: "#EAF8F6"),
+            ink: Color(hex: "#143B39"),
+            mutedInk: Color(hex: "#316562"),
+            tertiaryInk: Color(hex: "#5B8884"),
+            accent: Color(hex: "#199C94"),
+            badgeFill: Color(hex: "#D7F2EE"),
+            border: Color(hex: "#91CEC8"),
+            perforation: Color(hex: "#76B9B2"),
+            emojiTint: Color(hex: "#58BDB6"),
+            datePanelTop: Color(hex: "#128B84"),
+            datePanelBottom: Color(hex: "#0D7670"),
+            dateInk: Color.white,
+            dateCapsule: Color.white.opacity(0.18)
+        )
+    case .party:
+        return DiscoverHangoutPalette(
+            wallpaperTop: Color(hex: "#F6D3E6"),
+            wallpaperBottom: Color(hex: "#E89BC2"),
+            panel: Color(hex: "#FFF7FB"),
+            footerPanel: Color(hex: "#FBEAF3"),
+            ink: Color(hex: "#4B1735"),
+            mutedInk: Color(hex: "#7C3E61"),
+            tertiaryInk: Color(hex: "#A66789"),
+            accent: Color(hex: "#D9468D"),
+            badgeFill: Color(hex: "#F9E0EE"),
+            border: Color(hex: "#D7A0BF"),
+            perforation: Color(hex: "#C78AAE"),
+            emojiTint: Color(hex: "#E06AA5"),
+            datePanelTop: Color(hex: "#D2367F"),
+            datePanelBottom: Color(hex: "#B9286B"),
+            dateInk: Color.white,
+            dateCapsule: Color.white.opacity(0.18)
+        )
+    case .creative:
+        return DiscoverHangoutPalette(
+            wallpaperTop: Color(hex: "#E9E1FF"),
+            wallpaperBottom: Color(hex: "#C8B8F3"),
+            panel: Color(hex: "#FBF8FF"),
+            footerPanel: Color(hex: "#F3ECFF"),
+            ink: Color(hex: "#312056"),
+            mutedInk: Color(hex: "#5D448F"),
+            tertiaryInk: Color(hex: "#8470B2"),
+            accent: Color(hex: "#7F63E8"),
+            badgeFill: Color(hex: "#EEE8FF"),
+            border: Color(hex: "#BEAFE9"),
+            perforation: Color(hex: "#A997DB"),
+            emojiTint: Color(hex: "#927BEF"),
+            datePanelTop: Color(hex: "#7155D9"),
+            datePanelBottom: Color(hex: "#5E43C0"),
+            dateInk: Color.white,
+            dateCapsule: Color.white.opacity(0.18)
+        )
+    case .outdoors:
+        return DiscoverHangoutPalette(
+            wallpaperTop: Color(hex: "#DCEFD6"),
+            wallpaperBottom: Color(hex: "#B8D8AE"),
+            panel: Color(hex: "#F7FBF4"),
+            footerPanel: Color(hex: "#EEF6EA"),
+            ink: Color(hex: "#21381E"),
+            mutedInk: Color(hex: "#476243"),
+            tertiaryInk: Color(hex: "#6C8867"),
+            accent: Color(hex: "#3E9557"),
+            badgeFill: Color(hex: "#E3F0DE"),
+            border: Color(hex: "#A7C79F"),
+            perforation: Color(hex: "#8AB984"),
+            emojiTint: Color(hex: "#6AAA6F"),
+            datePanelTop: Color(hex: "#317B46"),
+            datePanelBottom: Color(hex: "#28653A"),
+            dateInk: Color.white,
+            dateCapsule: Color.white.opacity(0.18)
+        )
     case .drinks:
         return DiscoverHangoutPalette(
-            wallpaperTop: Color(hex: "#F0DCC8"),
-            wallpaperBottom: Color(hex: "#DBB48E"),
-            panel: Color(hex: "#FFF8F1"),
-            footerPanel: Color(hex: "#FBF0E2"),
-            ink: Color(hex: "#442515"),
-            mutedInk: Color(hex: "#6E4831"),
-            tertiaryInk: Color(hex: "#916A50"),
-            accent: Color(hex: "#B9652A"),
-            badgeFill: Color(hex: "#F8E7D7"),
-            border: Color(hex: "#C79D79"),
-            perforation: Color(hex: "#B68A65"),
-            emojiTint: Color(hex: "#C27A45"),
-            datePanelTop: Color(hex: "#A95924"),
-            datePanelBottom: Color(hex: "#8F491C"),
+            wallpaperTop: Color(hex: "#EEF0D4"),
+            wallpaperBottom: Color(hex: "#D5D99C"),
+            panel: Color(hex: "#FCFCEF"),
+            footerPanel: Color(hex: "#F5F6E1"),
+            ink: Color(hex: "#384118"),
+            mutedInk: Color(hex: "#5F6D33"),
+            tertiaryInk: Color(hex: "#808E4D"),
+            accent: Color(hex: "#7D9731"),
+            badgeFill: Color(hex: "#EFF2D1"),
+            border: Color(hex: "#BBC67A"),
+            perforation: Color(hex: "#A5AF63"),
+            emojiTint: Color(hex: "#95AA4B"),
+            datePanelTop: Color(hex: "#708927"),
+            datePanelBottom: Color(hex: "#5E721F"),
             dateInk: Color.white,
             dateCapsule: Color.white.opacity(0.18)
         )
     case .deepTalk:
         return DiscoverHangoutPalette(
-            wallpaperTop: Color(hex: "#E3DAF2"),
-            wallpaperBottom: Color(hex: "#C9B7E8"),
-            panel: Color(hex: "#FBF9FF"),
-            footerPanel: Color(hex: "#F5F0FC"),
-            ink: Color(hex: "#2F1E49"),
-            mutedInk: Color(hex: "#594078"),
-            tertiaryInk: Color(hex: "#7E69A1"),
-            accent: Color(hex: "#7A58BB"),
-            badgeFill: Color(hex: "#EEE7FB"),
-            border: Color(hex: "#B59FD9"),
-            perforation: Color(hex: "#A88CCC"),
-            emojiTint: Color(hex: "#8E71C8"),
-            datePanelTop: Color(hex: "#7350B1"),
-            datePanelBottom: Color(hex: "#5E409A"),
+            wallpaperTop: Color(hex: "#DEE3FA"),
+            wallpaperBottom: Color(hex: "#BDC8F0"),
+            panel: Color(hex: "#F9FAFF"),
+            footerPanel: Color(hex: "#EEF1FD"),
+            ink: Color(hex: "#202A4B"),
+            mutedInk: Color(hex: "#43557D"),
+            tertiaryInk: Color(hex: "#6778A1"),
+            accent: Color(hex: "#5057B8"),
+            badgeFill: Color(hex: "#E4E8FA"),
+            border: Color(hex: "#A7B0DA"),
+            perforation: Color(hex: "#919BCB"),
+            emojiTint: Color(hex: "#7079CC"),
+            datePanelTop: Color(hex: "#4950A8"),
+            datePanelBottom: Color(hex: "#3B428F"),
             dateInk: Color.white,
             dateCapsule: Color.white.opacity(0.18)
         )
-    case .activity:
+    case .boardGames:
         return DiscoverHangoutPalette(
-            wallpaperTop: Color(hex: "#D7E7CC"),
-            wallpaperBottom: Color(hex: "#BCD1AF"),
-            panel: Color(hex: "#F5FAF1"),
-            footerPanel: Color(hex: "#EEF6E7"),
-            ink: Color(hex: "#213524"),
-            mutedInk: Color(hex: "#4B6650"),
-            tertiaryInk: Color(hex: "#718A74"),
-            accent: Color(hex: "#4E8753"),
-            badgeFill: Color(hex: "#E2F0E0"),
-            border: Color(hex: "#9EBD9E"),
-            perforation: Color(hex: "#88A887"),
-            emojiTint: Color(hex: "#709E6E"),
-            datePanelTop: Color(hex: "#4C7846"),
-            datePanelBottom: Color(hex: "#3E653A"),
+            wallpaperTop: Color(hex: "#F5E2BF"),
+            wallpaperBottom: Color(hex: "#EAC978"),
+            panel: Color(hex: "#FFF9ED"),
+            footerPanel: Color(hex: "#FBF1DB"),
+            ink: Color(hex: "#4B3111"),
+            mutedInk: Color(hex: "#755222"),
+            tertiaryInk: Color(hex: "#9C7540"),
+            accent: Color(hex: "#C98217"),
+            badgeFill: Color(hex: "#F8E7C1"),
+            border: Color(hex: "#D4AF6E"),
+            perforation: Color(hex: "#C39752"),
+            emojiTint: Color(hex: "#D8A139"),
+            datePanelTop: Color(hex: "#BE7410"),
+            datePanelBottom: Color(hex: "#A25F0C"),
+            dateInk: Color.white,
+            dateCapsule: Color.white.opacity(0.18)
+        )
+    case .culture:
+        return DiscoverHangoutPalette(
+            wallpaperTop: Color(hex: "#F2DADF"),
+            wallpaperBottom: Color(hex: "#E0B2BE"),
+            panel: Color(hex: "#FFF8FA"),
+            footerPanel: Color(hex: "#F9ECF0"),
+            ink: Color(hex: "#4C2230"),
+            mutedInk: Color(hex: "#774656"),
+            tertiaryInk: Color(hex: "#9D6B7A"),
+            accent: Color(hex: "#A23E61"),
+            badgeFill: Color(hex: "#F4DDE3"),
+            border: Color(hex: "#D3A6B3"),
+            perforation: Color(hex: "#C38B9D"),
+            emojiTint: Color(hex: "#C16284"),
+            datePanelTop: Color(hex: "#963755"),
+            datePanelBottom: Color(hex: "#7E2D46"),
             dateInk: Color.white,
             dateCapsule: Color.white.opacity(0.18)
         )
     case .foodie:
         return DiscoverHangoutPalette(
-            wallpaperTop: Color(hex: "#F2D9CB"),
-            wallpaperBottom: Color(hex: "#E4B28D"),
-            panel: Color(hex: "#FFF7F1"),
-            footerPanel: Color(hex: "#FCEEE3"),
-            ink: Color(hex: "#4A2417"),
-            mutedInk: Color(hex: "#7A4935"),
-            tertiaryInk: Color(hex: "#9D7059"),
-            accent: Color(hex: "#C6653C"),
-            badgeFill: Color(hex: "#FBE4D8"),
-            border: Color(hex: "#D0A289"),
-            perforation: Color(hex: "#BF8E74"),
-            emojiTint: Color(hex: "#D07A54"),
-            datePanelTop: Color(hex: "#BD5C34"),
-            datePanelBottom: Color(hex: "#A54B29"),
+            wallpaperTop: Color(hex: "#F5DDD1"),
+            wallpaperBottom: Color(hex: "#E7B193"),
+            panel: Color(hex: "#FFF8F3"),
+            footerPanel: Color(hex: "#FCEEE6"),
+            ink: Color(hex: "#4C2619"),
+            mutedInk: Color(hex: "#7B4B38"),
+            tertiaryInk: Color(hex: "#A2705C"),
+            accent: Color(hex: "#D95F3D"),
+            badgeFill: Color(hex: "#FBE4DA"),
+            border: Color(hex: "#D3A08B"),
+            perforation: Color(hex: "#C38B75"),
+            emojiTint: Color(hex: "#DE7857"),
+            datePanelTop: Color(hex: "#CB5534"),
+            datePanelBottom: Color(hex: "#AE4628"),
             dateInk: Color.white,
             dateCapsule: Color.white.opacity(0.18)
         )
     case .sporty:
         return DiscoverHangoutPalette(
-            wallpaperTop: Color(hex: "#E3E7C4"),
-            wallpaperBottom: Color(hex: "#CDD49A"),
-            panel: Color(hex: "#FBFCEF"),
-            footerPanel: Color(hex: "#F4F6E4"),
-            ink: Color(hex: "#2F3818"),
-            mutedInk: Color(hex: "#5D6C36"),
-            tertiaryInk: Color(hex: "#7A8750"),
-            accent: Color(hex: "#73873B"),
-            badgeFill: Color(hex: "#EEF1D3"),
-            border: Color(hex: "#B6BE82"),
-            perforation: Color(hex: "#A1A96E"),
-            emojiTint: Color(hex: "#8D9A4A"),
-            datePanelTop: Color(hex: "#6C7E34"),
-            datePanelBottom: Color(hex: "#59692C"),
+            wallpaperTop: Color(hex: "#D8E9FF"),
+            wallpaperBottom: Color(hex: "#AFCFF7"),
+            panel: Color(hex: "#F7FBFF"),
+            footerPanel: Color(hex: "#EAF3FF"),
+            ink: Color(hex: "#183352"),
+            mutedInk: Color(hex: "#40678F"),
+            tertiaryInk: Color(hex: "#678BB3"),
+            accent: Color(hex: "#1E7BE8"),
+            badgeFill: Color(hex: "#DFECFF"),
+            border: Color(hex: "#9DBCE5"),
+            perforation: Color(hex: "#85A6D5"),
+            emojiTint: Color(hex: "#5E96E9"),
+            datePanelTop: Color(hex: "#1A6FD2"),
+            datePanelBottom: Color(hex: "#165DB0"),
             dateInk: Color.white,
             dateCapsule: Color.white.opacity(0.18)
         )
@@ -556,23 +651,6 @@ private func discoverSourceTag(for sourceType: HangoutSourceType) -> DiscoverSou
 
 func discoverAccentColor(for hangout: HangoutItem) -> Color {
     discoverPalette(for: hangout.vibe).accent
-}
-
-private func discoverVibeEmoji(for vibe: HangoutVibe) -> String {
-    switch vibe {
-    case .chill:
-        return "🛋️"
-    case .drinks:
-        return "🍸"
-    case .deepTalk:
-        return "🗣️"
-    case .activity:
-        return "🚴"
-    case .foodie:
-        return "🍝"
-    case .sporty:
-        return "⚽"
-    }
 }
 
 private func discoverEmojiPattern(emoji: String, tint: Color, isExtended: Bool) -> some View {

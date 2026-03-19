@@ -198,6 +198,7 @@ struct RootTabView: View {
             .onChange(of: selectedTab) { current in
                 if current == .maps, lastTabForTransition != .maps {
                     triggerMapBlurLift()
+                    Task { await loadMapDiscoveryData() }
                 }
                 lastTabForTransition = current
             }
@@ -675,20 +676,7 @@ struct RootTabView: View {
     }
 
     private func mapVibe(_ raw: String) -> HangoutVibe {
-        switch raw.lowercased() {
-        case "drinks":
-            return .drinks
-        case "sporty", "outdoors":
-            return .sporty
-        case "food":
-            return .foodie
-        case "creative", "culture", "board games":
-            return .activity
-        case "deep talks":
-            return .deepTalk
-        default:
-            return .chill
-        }
+        HangoutVibe(backendRawValue: raw) ?? .chill
     }
 
     private func validCoordinate(lat: Double?, lng: Double?) -> CLLocationCoordinate2D? {
@@ -838,24 +826,21 @@ private struct PersistentDiscoveryMapView: View {
                     userMarker
                 case let .hangout(id, vibe, isToday):
                     Button {
-                        let selectionID = "hangout-\(id)"
-                        selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
+                        setSelection("hangout-\(id)")
                     } label: {
                         hangoutMarker(vibe: vibe, isToday: isToday)
                     }
                     .buttonStyle(.plain)
                 case let .event(id, category):
                     Button {
-                        let selectionID = "event-\(id)"
-                        selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
+                        setSelection("event-\(id)")
                     } label: {
                         eventMarker(category: category)
                     }
                     .buttonStyle(.plain)
                 case let .offer(id, isHot):
                     Button {
-                        let selectionID = "offer-\(id)"
-                        selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
+                        setSelection("offer-\(id)")
                     } label: {
                         offerMarker(isHot: isHot)
                     }
@@ -872,8 +857,7 @@ private struct PersistentDiscoveryMapView: View {
                                 )
                             }
                         } else if let firstID = hangoutIDs.first {
-                            let selectionID = "hangout-\(firstID)"
-                            selectedSelectionID = (selectedSelectionID == selectionID) ? nil : selectionID
+                            setSelection("hangout-\(firstID)")
                         }
                     } label: {
                         clusterMarker(count: count, vibe: vibe, isToday: isToday)
@@ -884,9 +868,7 @@ private struct PersistentDiscoveryMapView: View {
         }
         .onChange(of: selectedSelectionID) { id in
             guard let id else { return }
-            withAnimation(.easeInOut(duration: 0.22)) {
-                region.center = coordinate(for: id)
-            }
+            centerMap(on: coordinate(for: id))
         }
     }
 
@@ -1113,6 +1095,22 @@ private struct PersistentDiscoveryMapView: View {
         return userCoordinate
     }
 
+    private func setSelection(_ selectionID: String) {
+        if selectedSelectionID == selectionID {
+            selectedSelectionID = nil
+            return
+        }
+
+        selectedSelectionID = selectionID
+        centerMap(on: coordinate(for: selectionID))
+    }
+
+    private func centerMap(on coordinate: CLLocationCoordinate2D) {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            region = MKCoordinateRegion(center: coordinate, span: region.span)
+        }
+    }
+
     private func clusteredHangoutMarkers() -> [DiscoveryMapMarker] {
         struct Point {
             let hangout: HangoutItem
@@ -1198,25 +1196,11 @@ private struct PersistentDiscoveryMapView: View {
     }
 
     private func vibeColor(_ vibe: HangoutVibe) -> Color {
-        switch vibe {
-        case .chill: return Color(hex: "#667EEA")
-        case .drinks: return Color(hex: "#FC5C65")
-        case .deepTalk: return Color(hex: "#A55EEA")
-        case .activity: return Color(hex: "#56AB2F")
-        case .foodie: return Color(hex: "#D4A373")
-        case .sporty: return Color(hex: "#26DE81")
-        }
+        vibe.accentColor
     }
 
     private func vibeEmoji(_ vibe: HangoutVibe) -> String {
-        switch vibe {
-        case .chill: return "😌"
-        case .drinks: return "🍸"
-        case .deepTalk: return "🗣️"
-        case .activity: return "💪"
-        case .foodie: return "🍽️"
-        case .sporty: return "⚽"
-        }
+        vibe.emoji
     }
 
     private func eventSymbol(for category: String) -> String {
@@ -1643,25 +1627,11 @@ private struct MapsOverlayView: View {
     }
 
     private func vibeColor(_ vibe: HangoutVibe) -> Color {
-        switch vibe {
-        case .chill: return Color(hex: "#667EEA")
-        case .drinks: return Color(hex: "#FC5C65")
-        case .deepTalk: return Color(hex: "#A55EEA")
-        case .activity: return Color(hex: "#56AB2F")
-        case .foodie: return Color(hex: "#D4A373")
-        case .sporty: return Color(hex: "#26DE81")
-        }
+        vibe.accentColor
     }
 
     private func vibeEmoji(_ vibe: HangoutVibe) -> String {
-        switch vibe {
-        case .chill: return "😌"
-        case .drinks: return "🍸"
-        case .deepTalk: return "🗣️"
-        case .activity: return "💪"
-        case .foodie: return "🍽️"
-        case .sporty: return "⚽"
-        }
+        vibe.emoji
     }
 }
 

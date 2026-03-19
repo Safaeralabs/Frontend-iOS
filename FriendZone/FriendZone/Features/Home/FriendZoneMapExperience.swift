@@ -122,9 +122,7 @@ struct FriendZoneMapCanvasView: View {
         }
         .onChange(of: selectedSelectionID) { selectionID in
             guard let selectionID else { return }
-            withAnimation(.easeInOut(duration: 0.26)) {
-                region.center = coordinate(for: selectionID)
-            }
+            centerMap(on: coordinate(for: selectionID))
         }
     }
 
@@ -135,21 +133,21 @@ struct FriendZoneMapCanvasView: View {
             userMarker
         case let .hangout(id, vibe, isToday, isApproximate):
             Button {
-                toggleSelection("hangout-\(id)")
+                setSelection("hangout-\(id)")
             } label: {
                 hangoutPin(vibe: vibe, isToday: isToday, isSelected: selectedSelectionID == "hangout-\(id)", isApproximate: isApproximate)
             }
             .buttonStyle(.plain)
         case let .event(id, category):
             Button {
-                toggleSelection("event-\(id)")
+                setSelection("event-\(id)")
             } label: {
                 eventPin(category: category, isSelected: selectedSelectionID == "event-\(id)")
             }
             .buttonStyle(.plain)
         case let .offer(id, isHot):
             Button {
-                toggleSelection("offer-\(id)")
+                setSelection("offer-\(id)")
             } label: {
                 offerPin(isHot: isHot, isSelected: selectedSelectionID == "offer-\(id)")
             }
@@ -166,7 +164,7 @@ struct FriendZoneMapCanvasView: View {
                         )
                     }
                 } else if let firstID = hangoutIDs.first {
-                    toggleSelection("hangout-\(firstID)")
+                    setSelection("hangout-\(firstID)")
                 }
             } label: {
                 clusterPin(count: count, vibe: vibe, isToday: isToday, hasApproximateMembers: hasApproximateMembers)
@@ -437,8 +435,20 @@ struct FriendZoneMapCanvasView: View {
             .offset(y: 20)
     }
 
-    private func toggleSelection(_ selectionID: String) {
-        selectedSelectionID = selectedSelectionID == selectionID ? nil : selectionID
+    private func setSelection(_ selectionID: String) {
+        if selectedSelectionID == selectionID {
+            selectedSelectionID = nil
+            return
+        }
+
+        selectedSelectionID = selectionID
+        centerMap(on: coordinate(for: selectionID))
+    }
+
+    private func centerMap(on coordinate: CLLocationCoordinate2D) {
+        withAnimation(.easeInOut(duration: 0.26)) {
+            region = MKCoordinateRegion(center: coordinate, span: region.span)
+        }
     }
 
     private func coordinate(for selectionID: String) -> CLLocationCoordinate2D {
@@ -1066,25 +1076,11 @@ private struct FriendZoneMapMarker: Identifiable {
 }
 
 private func friendZoneMapVibeColor(_ vibe: HangoutVibe) -> Color {
-    switch vibe {
-    case .chill: return Color(hex: "#667EEA")
-    case .drinks: return Color(hex: "#FC5C65")
-    case .deepTalk: return Color(hex: "#A55EEA")
-    case .activity: return Color(hex: "#56AB2F")
-    case .foodie: return Color(hex: "#D4A373")
-    case .sporty: return Color(hex: "#26DE81")
-    }
+    vibe.accentColor
 }
 
 private func friendZoneMapVibeEmoji(_ vibe: HangoutVibe) -> String {
-    switch vibe {
-    case .chill: return "😌"
-    case .drinks: return "🍸"
-    case .deepTalk: return "🗣️"
-    case .activity: return "💪"
-    case .foodie: return "🍽️"
-    case .sporty: return "⚽"
-    }
+    vibe.emoji
 }
 
 private func eventSymbol(for category: String) -> String {

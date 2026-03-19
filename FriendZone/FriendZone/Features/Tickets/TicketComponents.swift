@@ -87,16 +87,22 @@ struct TicketModel: Identifiable {
 
     private func vibeForCategory(_ category: String) -> HangoutVibe {
         switch category.lowercased() {
-        case "music", "party":
+        case "party":
+            return .party
+        case "music":
             return .drinks
-        case "culture", "networking":
-            return .deepTalk
-        case "sports", "outdoor":
+        case "culture":
+            return .culture
+        case "networking", "community", "tech", "other":
+            return .social
+        case "art":
+            return .creative
+        case "sports":
             return .sporty
+        case "outdoor":
+            return .outdoors
         case "food":
             return .foodie
-        case "tech":
-            return .activity
         default:
             return .chill
         }

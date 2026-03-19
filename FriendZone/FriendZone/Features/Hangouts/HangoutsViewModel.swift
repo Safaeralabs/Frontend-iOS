@@ -249,20 +249,7 @@ final class HangoutsViewModel: ObservableObject {
     }
 
     private func mapCreateVibe(_ vibe: HangoutCreateVibe) -> HangoutVibe {
-        switch vibe {
-        case .chill:
-            return .chill
-        case .drinks:
-            return .drinks
-        case .deepTalks:
-            return .deepTalk
-        case .sporty, .outdoors:
-            return .sporty
-        case .food:
-            return .foodie
-        case .creative, .social, .party, .boardGames, .culture:
-            return .activity
-        }
+        vibe.hangoutVibe
     }
 
     func clearAdvancedFilters() {

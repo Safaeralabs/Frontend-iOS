@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 enum HangoutSourceType: String, CaseIterable, Sendable {
     case hangout
@@ -15,21 +16,98 @@ enum HangoutSourceType: String, CaseIterable, Sendable {
 }
 
 enum HangoutVibe: String, CaseIterable, Sendable {
-    case chill
-    case drinks
-    case deepTalk
-    case activity
-    case foodie
-    case sporty
+    case chill = "chill"
+    case social = "social"
+    case party = "party"
+    case creative = "creative"
+    case outdoors = "outdoors"
+    case drinks = "drinks"
+    case deepTalk = "deep talks"
+    case boardGames = "board games"
+    case culture = "culture"
+    case sporty = "sporty"
+    case foodie = "food"
 
     var title: String {
         switch self {
         case .chill: return "Chill"
+        case .social: return "Social"
+        case .party: return "Party"
+        case .creative: return "Creative"
+        case .outdoors: return "Outdoors"
         case .drinks: return "Drinks"
-        case .deepTalk: return "Deep Talk"
-        case .activity: return "Activity"
+        case .deepTalk: return "Deep Talks"
+        case .boardGames: return "Board Games"
+        case .culture: return "Culture"
         case .foodie: return "Food"
         case .sporty: return "Sporty"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .chill: return "🛋️"
+        case .social: return "🫶"
+        case .party: return "🎉"
+        case .creative: return "🎨"
+        case .outdoors: return "🌿"
+        case .drinks: return "🍸"
+        case .deepTalk: return "🗣️"
+        case .boardGames: return "🎲"
+        case .culture: return "🎭"
+        case .sporty: return "⚽"
+        case .foodie: return "🍝"
+        }
+    }
+
+    var accentColor: Color {
+        switch self {
+        case .chill: return Color(hex: "#5B70D6")
+        case .social: return Color(hex: "#199C94")
+        case .party: return Color(hex: "#D93E8A")
+        case .creative: return Color(hex: "#7F63E8")
+        case .outdoors: return Color(hex: "#3E9557")
+        case .drinks: return Color(hex: "#7D9731")
+        case .deepTalk: return Color(hex: "#5057B8")
+        case .boardGames: return Color(hex: "#C98217")
+        case .culture: return Color(hex: "#A23E61")
+        case .sporty: return Color(hex: "#1E7BE8")
+        case .foodie: return Color(hex: "#D95F3D")
+        }
+    }
+
+    init?(backendRawValue: String) {
+        let normalized = backendRawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalized {
+        case "chill":
+            self = .chill
+        case "social":
+            self = .social
+        case "party":
+            self = .party
+        case "creative":
+            self = .creative
+        case "outdoors":
+            self = .outdoors
+        case "drinks":
+            self = .drinks
+        case "deep talks", "deep_talks", "deeptalks":
+            self = .deepTalk
+        case "board games", "board_games", "boardgames":
+            self = .boardGames
+        case "culture":
+            self = .culture
+        case "sporty":
+            self = .sporty
+        case "food":
+            self = .foodie
+        case "activity":
+            self = .social
+        default:
+            return nil
         }
     }
 }
@@ -145,34 +223,30 @@ enum HangoutCreateVibe: String, CaseIterable, Sendable {
     case food = "food"
 
     var title: String {
-        switch self {
-        case .chill: return "Chill"
-        case .social: return "Social"
-        case .party: return "Party"
-        case .creative: return "Creative"
-        case .outdoors: return "Outdoors"
-        case .drinks: return "Drinks"
-        case .deepTalks: return "Deep Talks"
-        case .boardGames: return "Board Games"
-        case .culture: return "Culture"
-        case .sporty: return "Sporty"
-        case .food: return "Food"
-        }
+        hangoutVibe.title
     }
 
     var emoji: String {
+        hangoutVibe.emoji
+    }
+
+    var accentColor: Color {
+        hangoutVibe.accentColor
+    }
+
+    var hangoutVibe: HangoutVibe {
         switch self {
-        case .chill: return "🛋️"
-        case .social: return "🫶"
-        case .party: return "🎉"
-        case .creative: return "🎨"
-        case .outdoors: return "🌿"
-        case .drinks: return "🍸"
-        case .deepTalks: return "🗣️"
-        case .boardGames: return "🎲"
-        case .culture: return "🎭"
-        case .sporty: return "⚽"
-        case .food: return "🍝"
+        case .chill: return .chill
+        case .social: return .social
+        case .party: return .party
+        case .creative: return .creative
+        case .outdoors: return .outdoors
+        case .drinks: return .drinks
+        case .deepTalks: return .deepTalk
+        case .boardGames: return .boardGames
+        case .culture: return .culture
+        case .sporty: return .sporty
+        case .food: return .foodie
         }
     }
 }

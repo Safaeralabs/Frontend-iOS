@@ -2,6 +2,18 @@ import Foundation
 import Combine
 import Security
 
+enum FriendStatus: String, Codable, Equatable {
+    case none
+    case outgoingRequest = "outgoing_request"
+    case incomingRequest = "incoming_request"
+    case friends
+    case selfProfile = "self"
+
+    init(rawValueOrNone value: String?) {
+        self = FriendStatus(rawValue: value ?? "") ?? .none
+    }
+}
+
 struct AuthenticatedUser: Decodable, Equatable {
     let id: Int
     let username: String
@@ -74,6 +86,8 @@ struct PublicUserProfile: Decodable, Equatable, Identifiable {
     let hostRating: Double?
     let reviewsCount: Int?
     let followersCount: Int?
+    let friendsCount: Int?
+    let friendStatus: FriendStatus
     let verifiedProfile: Bool?
     let isPremium: Bool?
     let completionScore: Int?
@@ -95,6 +109,8 @@ struct PublicUserProfile: Decodable, Equatable, Identifiable {
         case hostRating
         case reviewsCount
         case followersCount
+        case friendsCount
+        case friendStatus
         case verifiedProfile
         case isPremium
         case completionScore
@@ -116,6 +132,8 @@ struct PublicUserProfile: Decodable, Equatable, Identifiable {
         hostRating = try container.decodeFlexibleDoubleIfPresent(forKey: .hostRating)
         reviewsCount = try container.decodeIfPresent(Int.self, forKey: .reviewsCount)
         followersCount = try container.decodeIfPresent(Int.self, forKey: .followersCount)
+        friendsCount = try container.decodeIfPresent(Int.self, forKey: .friendsCount)
+        friendStatus = FriendStatus(rawValueOrNone: try container.decodeFlexibleStringIfPresent(forKey: .friendStatus))
         verifiedProfile = try container.decodeIfPresent(Bool.self, forKey: .verifiedProfile)
         isPremium = try container.decodeIfPresent(Bool.self, forKey: .isPremium)
         completionScore = try container.decodeIfPresent(Int.self, forKey: .completionScore)
@@ -149,6 +167,9 @@ struct SessionProfile: Decodable, Equatable {
     let reviewsCount: Int?
     let followersCount: Int?
     let followingCount: Int?
+    let friendsCount: Int?
+    let incomingFriendRequestsCount: Int?
+    let outgoingFriendRequestsCount: Int?
     let hangoutsAttended: Int?
     let hangoutsHosted: Int?
     let hostRating: Double?
@@ -187,6 +208,9 @@ struct SessionProfile: Decodable, Equatable {
         case reviewsCount
         case followersCount
         case followingCount
+        case friendsCount
+        case incomingFriendRequestsCount
+        case outgoingFriendRequestsCount
         case hangoutsAttended
         case hangoutsHosted
         case hostRating
@@ -227,6 +251,9 @@ struct SessionProfile: Decodable, Equatable {
         reviewsCount = try container.decodeIfPresent(Int.self, forKey: .reviewsCount)
         followersCount = try container.decodeIfPresent(Int.self, forKey: .followersCount)
         followingCount = try container.decodeIfPresent(Int.self, forKey: .followingCount)
+        friendsCount = try container.decodeIfPresent(Int.self, forKey: .friendsCount)
+        incomingFriendRequestsCount = try container.decodeIfPresent(Int.self, forKey: .incomingFriendRequestsCount)
+        outgoingFriendRequestsCount = try container.decodeIfPresent(Int.self, forKey: .outgoingFriendRequestsCount)
         hangoutsAttended = try container.decodeIfPresent(Int.self, forKey: .hangoutsAttended)
         hangoutsHosted = try container.decodeIfPresent(Int.self, forKey: .hangoutsHosted)
         hostRating = try container.decodeFlexibleDoubleIfPresent(forKey: .hostRating)
@@ -989,10 +1016,35 @@ private struct CompleteOnboardingResponse: Decodable {
     let profile: SessionProfile
 }
 
-private struct FollowToggleResponse: Decodable {
+struct FriendshipActionResponse: Decodable, Equatable {
     let action: String
-    let followingId: Int?
-    let followingCount: Int?
+    let friendStatus: FriendStatus
+    let userId: Int?
+    let friendsCount: Int?
+    let incomingFriendRequestsCount: Int?
+    let outgoingFriendRequestsCount: Int?
+    let targetFriendsCount: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case friendStatus
+        case userId
+        case friendsCount
+        case incomingFriendRequestsCount
+        case outgoingFriendRequestsCount
+        case targetFriendsCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        action = try container.decode(String.self, forKey: .action)
+        friendStatus = FriendStatus(rawValueOrNone: try container.decodeFlexibleStringIfPresent(forKey: .friendStatus))
+        userId = try container.decodeIfPresent(Int.self, forKey: .userId)
+        friendsCount = try container.decodeIfPresent(Int.self, forKey: .friendsCount)
+        incomingFriendRequestsCount = try container.decodeIfPresent(Int.self, forKey: .incomingFriendRequestsCount)
+        outgoingFriendRequestsCount = try container.decodeIfPresent(Int.self, forKey: .outgoingFriendRequestsCount)
+        targetFriendsCount = try container.decodeIfPresent(Int.self, forKey: .targetFriendsCount)
+    }
 }
 
 private struct UserPatchRequest: Encodable {
@@ -1624,11 +1676,16 @@ final class AppSessionStore: ObservableObject {
         }
     }
 
-    func toggleFollow(userID: Int) async throws -> Bool {
-        let response = try await authorizedCall { [self] accessToken in
-            try await self.profileAPI.toggleFollow(userID: userID, accessToken: accessToken)
+    func manageFriendship(userID: Int) async throws -> FriendshipActionResponse {
+        try await authorizedCall { [self] accessToken in
+            try await self.profileAPI.manageFriendship(userID: userID, accessToken: accessToken)
         }
-        return response.action == "following"
+    }
+
+    func declineFriendRequest(userID: Int) async throws -> FriendshipActionResponse {
+        try await authorizedCall { [self] accessToken in
+            try await self.profileAPI.declineFriendRequest(userID: userID, accessToken: accessToken)
+        }
     }
 
     @MainActor
@@ -2122,9 +2179,14 @@ private final class ProfileAPIService {
         return try decode(PublicUserProfile.self, from: data)
     }
 
-    func toggleFollow(userID: Int, accessToken: String) async throws -> FollowToggleResponse {
-        let data = try await request(path: "/api/profiles/me/follow/\(userID)/", method: "POST", accessToken: accessToken)
-        return try decode(FollowToggleResponse.self, from: data)
+    func manageFriendship(userID: Int, accessToken: String) async throws -> FriendshipActionResponse {
+        let data = try await request(path: "/api/profiles/me/friends/\(userID)/", method: "POST", accessToken: accessToken)
+        return try decode(FriendshipActionResponse.self, from: data)
+    }
+
+    func declineFriendRequest(userID: Int, accessToken: String) async throws -> FriendshipActionResponse {
+        let data = try await request(path: "/api/profiles/me/friends/\(userID)/decline/", method: "POST", accessToken: accessToken)
+        return try decode(FriendshipActionResponse.self, from: data)
     }
 
     private func request(path: String, method: String, body: Data? = nil, accessToken: String) async throws -> Data {

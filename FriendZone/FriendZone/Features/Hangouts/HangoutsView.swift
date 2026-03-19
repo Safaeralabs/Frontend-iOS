@@ -619,20 +619,7 @@ struct HangoutsView: View {
     }
 
     private func mapVibe(_ raw: String) -> HangoutVibe {
-        switch raw.lowercased() {
-        case "drinks":
-            return .drinks
-        case "sporty", "outdoors":
-            return .sporty
-        case "food":
-            return .foodie
-        case "creative", "culture", "board games":
-            return .activity
-        case "deep talks":
-            return .deepTalk
-        default:
-            return .chill
-        }
+        HangoutVibe(backendRawValue: raw) ?? .chill
     }
 
     private var backdrop: some View {
@@ -1187,20 +1174,7 @@ struct HangoutsView: View {
     }
 
     private func accentColor(for hangout: HangoutItem) -> Color {
-        switch hangout.vibe {
-        case .chill:
-            return Color(hex: "#667EEA")
-        case .drinks:
-            return Color(hex: "#F59E0B")
-        case .deepTalk:
-            return Color(hex: "#8B5CF6")
-        case .activity:
-            return Color(hex: "#10B981")
-        case .foodie:
-            return Color(hex: "#EF4444")
-        case .sporty:
-            return Color(hex: "#0EA5E9")
-        }
+        hangout.vibe.accentColor
     }
 
     private func eventAsHangoutTicket(_ event: DiscoveryEventItem) -> HangoutItem {
@@ -1233,16 +1207,22 @@ struct HangoutsView: View {
 
     private func vibeForEventCategory(_ category: String) -> HangoutVibe {
         switch category.lowercased() {
-        case "music", "party":
+        case "party":
+            return .party
+        case "music":
             return .drinks
-        case "culture", "networking":
-            return .deepTalk
-        case "sports", "outdoor":
+        case "networking", "community", "other", "tech":
+            return .social
+        case "art":
+            return .creative
+        case "culture":
+            return .culture
+        case "sports":
             return .sporty
+        case "outdoor":
+            return .outdoors
         case "food":
             return .foodie
-        case "tech":
-            return .activity
         default:
             return .chill
         }
@@ -2258,7 +2238,7 @@ struct HangoutCardView: View {
 
     private var rightStub: some View {
         VStack(spacing: previewCompactLayout ? 6 : 7) {
-            Text(timeRemainingText(from: now, to: hangout.startAt) ?? "SOON")
+            Text(hangout.isLive ? "LIVE" : (timeRemainingText(from: now, to: hangout.startAt) ?? "SOON"))
                 .font(FriendZoneTheme.Typography.system(previewCompactLayout ? 16 : 17, weight: .heavy))
                 .foregroundColor(FriendZoneTheme.Colors.textPrimary)
                 .padding(.horizontal, previewCompactLayout ? 7 : 8)
@@ -2525,14 +2505,7 @@ struct HangoutCardView: View {
     }
 
     private var accentColor: Color {
-        switch hangout.vibe {
-        case .chill: return Color(hex: "#667EEA")
-        case .drinks: return Color(hex: "#F59E0B")
-        case .deepTalk: return Color(hex: "#8B5CF6")
-        case .activity: return Color(hex: "#10B981")
-        case .foodie: return Color(hex: "#EF4444")
-        case .sporty: return Color(hex: "#0EA5E9")
-        }
+        hangout.vibe.accentColor
     }
 
 }
@@ -3293,21 +3266,21 @@ private struct NativeProfileHubView: View {
 
             NavigationLink {
                 NativePlaceholderHubView(
-                    title: "Followers",
-                    message: "Your followers list will appear here."
+                    title: "Friends",
+                    message: "Your friends list will appear here."
                 )
             } label: {
-                profileStatCard("👥", followersCount, "FOLLOWERS", interactive: true)
+                profileStatCard("👥", friendsCount, "FRIENDS", interactive: true)
             }
             .buttonStyle(.plain)
 
             NavigationLink {
                 NativePlaceholderHubView(
-                    title: "Following",
-                    message: "Accounts you follow will appear here."
+                    title: "Requests",
+                    message: "Incoming friend requests will appear here."
                 )
             } label: {
-                profileStatCard("🤝", followingCount, "FOLLOWING", interactive: true)
+                profileStatCard("💌", friendRequestsCount, "REQUESTS", interactive: true)
             }
             .buttonStyle(.plain)
         }
@@ -3835,12 +3808,12 @@ private struct NativeProfileHubView: View {
         "\(session.currentProfile?.hangoutsHosted ?? 0)"
     }
 
-    private var followersCount: String {
-        "\(session.currentProfile?.followersCount ?? 0)"
+    private var friendsCount: String {
+        "\(session.currentProfile?.friendsCount ?? 0)"
     }
 
-    private var followingCount: String {
-        "\(session.currentProfile?.followingCount ?? 0)"
+    private var friendRequestsCount: String {
+        "\(session.currentProfile?.incomingFriendRequestsCount ?? 0)"
     }
 
     private var ratingValue: String {
@@ -6157,25 +6130,11 @@ private struct NativePlansHubView: View {
     }
 
     private func vibeColor(_ vibe: HangoutVibe) -> Color {
-        switch vibe {
-        case .chill: return Color(hex: "#667EEA")
-        case .drinks: return Color(hex: "#FC5C65")
-        case .deepTalk: return Color(hex: "#A55EEA")
-        case .activity: return Color(hex: "#56AB2F")
-        case .foodie: return Color(hex: "#D4A373")
-        case .sporty: return Color(hex: "#26DE81")
-        }
+        vibe.accentColor
     }
 
     private func vibeEmoji(_ vibe: HangoutVibe) -> String {
-        switch vibe {
-        case .chill: return "😌"
-        case .drinks: return "🍸"
-        case .deepTalk: return "🗣️"
-        case .activity: return "💪"
-        case .foodie: return "🍽️"
-        case .sporty: return "⚽"
-        }
+        vibe.emoji
     }
 }
 
@@ -6651,7 +6610,7 @@ private struct NativeNotificationPreferencesHubView: View {
                     Divider().padding(.leading, 16)
                     preferenceRow("Event Updates", "Changes to events you're attending", isOn: $eventUpdates)
                     Divider().padding(.leading, 16)
-                    preferenceRow("New Followers", "When someone follows your profile", isOn: $newFollowers)
+                    preferenceRow("Friend Requests", "When someone sends you a friend request", isOn: $newFollowers)
                     Divider().padding(.leading, 16)
                     preferenceRow("Reminders", "Reminders before your upcoming hangouts", isOn: $reminders)
                 }
@@ -7123,20 +7082,7 @@ private enum HubNavigationMapper {
     }
 
     private static func mapVibe(_ raw: String) -> HangoutVibe {
-        switch raw.lowercased() {
-        case "drinks":
-            return .drinks
-        case "sporty", "outdoors":
-            return .sporty
-        case "food":
-            return .foodie
-        case "creative", "culture", "board games":
-            return .activity
-        case "deep talks":
-            return .deepTalk
-        default:
-            return .chill
-        }
+        HangoutVibe(backendRawValue: raw) ?? .chill
     }
 }
 

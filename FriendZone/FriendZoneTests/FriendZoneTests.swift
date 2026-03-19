@@ -196,6 +196,46 @@ struct FriendZoneTests {
         #expect(hangouts.first?.lng == 11.576124)
     }
 
+    @Test func hangoutVibesMapOneToOneFromBackendValues() throws {
+        let cases: [(String, HangoutVibe)] = [
+            ("chill", .chill),
+            ("social", .social),
+            ("party", .party),
+            ("creative", .creative),
+            ("outdoors", .outdoors),
+            ("drinks", .drinks),
+            ("deep talks", .deepTalk),
+            ("board games", .boardGames),
+            ("culture", .culture),
+            ("sporty", .sporty),
+            ("food", .foodie),
+        ]
+
+        for (rawValue, expected) in cases {
+            #expect(HangoutVibe(backendRawValue: rawValue) == expected)
+        }
+    }
+
+    @Test func createVibesStayAlignedWithRenderedHangoutVibes() throws {
+        let cases: [(HangoutCreateVibe, HangoutVibe)] = [
+            (.chill, .chill),
+            (.social, .social),
+            (.party, .party),
+            (.creative, .creative),
+            (.outdoors, .outdoors),
+            (.drinks, .drinks),
+            (.deepTalks, .deepTalk),
+            (.boardGames, .boardGames),
+            (.culture, .culture),
+            (.sporty, .sporty),
+            (.food, .foodie),
+        ]
+
+        for (createVibe, expected) in cases {
+            #expect(createVibe.hangoutVibe == expected)
+        }
+    }
+
     @Test func discoveryEventFeedDecodesOptionalCoordinates() throws {
         let data = Data(
             """
